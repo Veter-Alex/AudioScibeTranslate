@@ -1,0 +1,19 @@
+{
+    "python.formatting.provider": "black",
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+        "source.organizeImports": "always"
+    },
+    "python.linting.enabled": true,
+    "python.linting.mypyEnabled": true,
+    "python.linting.mypyArgs": [
+        "--config-file=pyproject.toml"
+    ],
+    "python.sortImports.args": [
+        "--profile", "black"
+    ]
+    ,
+    "python.analysis.extraPaths": [
+        "./src"
+    ]
+}
