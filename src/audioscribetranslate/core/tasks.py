@@ -78,16 +78,22 @@ def transcribe_audio(audio_id: int) -> None:
             session.commit()
 
             model_name = audio.whisper_model
+            if hasattr(model_name, "name"):
+                model_name_value = model_name.name
+            else:
+                model_name_value = str(model_name)
             transcript_row = Transcript(
                 audio_file_id=audio_id,
-                model_name=model_name,
+                model_name=model_name_value,
                 status="processing",
             )
             session.add(transcript_row)
             session.commit()
 
             start_t = time.time()
-            text, lang, err = safe_transcribe(audio.storage_path or "", model_name)
+            text, lang, err = safe_transcribe(
+                audio.storage_path or "", model_name_value
+            )
             end_t = time.time()
             proc_sec = end_t - start_t
             text_chars = len(text) if text else None
