@@ -47,12 +47,14 @@ WhisperModel: Optional[type] = None
 
 try:
     import torch  # type: ignore
+
     logger.debug("PyTorch успешно загружен - доступно GPU ускорение")
 except ImportError:
     logger.debug("PyTorch недоступен - GPU ускорение отключено")
 
 try:
     from faster_whisper import WhisperModel  # type: ignore
+
     logger.debug("faster-whisper успешно загружен")
 except ImportError as e:
     logger.warning("faster-whisper не установлен: %s", e)
@@ -62,10 +64,10 @@ except ImportError as e:
 @dataclass(frozen=True)
 class TranscriptionConfig:
     """Конфигурация для сервиса транскрипции.
-    
+
     Все параметры настройки сервиса собраны в одном месте для удобства управления.
     Использует frozen=True для неизменяемости и лучшей производительности.
-    
+
     Атрибуты:
         default_model: Модель Whisper по умолчанию ('tiny', 'base', 'small', 'medium', 'large')
         beam_size: Размер луча для beam search (больше = точнее, но медленнее)
@@ -74,39 +76,42 @@ class TranscriptionConfig:
         enable_gpu: Разрешить использование GPU если доступно
         log_performance: Логировать метрики производительности
     """
+
     default_model: str = "base"  # Баланс между скоростью и качеством
-    beam_size: int = 1          # Быстрый режим для real-time приложений
-    cache_size: int = 8         # Достаточно для большинства сценариев
+    beam_size: int = 1  # Быстрый режим для real-time приложений
+    cache_size: int = 8  # Достаточно для большинства сценариев
     ffprobe_timeout: float = 5.0  # Предотвращает зависание на поврежденных файлах
-    enable_gpu: bool = True     # Автоматическое использование GPU
+    enable_gpu: bool = True  # Автоматическое использование GPU
     log_performance: bool = True  # Включить мониторинг производительности
 
 
 class DeviceType(str, Enum):
     """Поддерживаемые типы вычислительных устройств.
-    
+
     Наследуется от str для удобства сериализации и логирования.
     """
+
     CUDA = "cuda"  # NVIDIA GPU с CUDA поддержкой
-    CPU = "cpu"    # Центральный процессор
+    CPU = "cpu"  # Центральный процессор
 
 
 class ComputeType(str, Enum):
     """Поддерживаемые типы вычислений для оптимизации производительности.
-    
+
     Различные типы данных обеспечивают компромисс между скоростью и точностью.
     """
+
     FLOAT16 = "float16"  # Половинная точность для GPU (быстрее, меньше памяти)
-    INT8 = "int8"       # Квантизация для CPU (значительно быстрее)
+    INT8 = "int8"  # Квантизация для CPU (значительно быстрее)
 
 
 @dataclass(frozen=True)
 class TranscriptionResult:
     """Результат транскрипции аудио с расширенными метриками.
-    
+
     Содержит не только текст и язык, но и подробную информацию о процессе
     транскрипции для мониторинга и оптимизации производительности.
-    
+
     Атрибуты:
         text: Транскрибированный текст
         language: Обнаруженный язык (ISO код)
@@ -115,27 +120,29 @@ class TranscriptionResult:
         model_used: Использованная модель Whisper
         device_used: Устройство для вычислений (cuda/cpu)
     """
+
     text: str
     language: str
     confidence: Optional[float] = None
     processing_time: Optional[float] = None  # Для анализа производительности
-    model_used: Optional[str] = None         # Для отладки и мониторинга
-    device_used: Optional[str] = None        # Для оптимизации распределения нагрузки
+    model_used: Optional[str] = None  # Для отладки и мониторинга
+    device_used: Optional[str] = None  # Для оптимизации распределения нагрузки
 
 
 @dataclass(frozen=True)
 class TranscriptionError:
     """Информация об ошибке транскрипции с контекстом для диагностики.
-    
+
     Расширенная информация об ошибках помогает в отладке и мониторинге
     системы в production среде.
-    
+
     Атрибуты:
         message: Описание ошибки
         error_type: Тип исключения Python
         file_path: Путь к проблемному файлу
         timestamp: Время возникновения ошибки (Unix timestamp)
     """
+
     message: str
     error_type: str
     file_path: Optional[str] = None
@@ -145,16 +152,17 @@ class TranscriptionError:
 @dataclass(frozen=True)
 class ModelCacheStats:
     """Статистика производительности кэша моделей.
-    
+
     Предоставляет детальную информацию о работе кэша для оптимизации
     конфигурации и мониторинга эффективности.
-    
+
     Атрибуты:
         cache_size: Текущее количество моделей в кэше
         cache_hits: Количество успешных обращений к кэшу
         cache_misses: Количество промахов кэша (требующих загрузки)
         loaded_models: Список ключей загруженных моделей
     """
+
     cache_size: int
     cache_hits: int
     cache_misses: int
@@ -163,7 +171,7 @@ class ModelCacheStats:
     @property
     def hit_ratio(self) -> float:
         """Вычисляет коэффициент попаданий в кэш.
-        
+
         Returns:
             Отношение попаданий к общему количеству обращений (0.0-1.0)
             Высокий коэффициент (>0.8) указывает на эффективное использование кэша
@@ -174,20 +182,20 @@ class ModelCacheStats:
 
 class AudioDurationExtractor(Protocol):
     """Протокол для стратегий извлечения длительности аудио.
-    
+
     Использует паттерн Strategy для поддержки различных методов определения
     длительности аудиофайлов. Позволяет легко добавлять новые форматы и методы.
-    
+
     Методы:
         extract_duration: Извлекает длительность в секундах или None при неудаче
     """
 
     def extract_duration(self, path: Path) -> Optional[float]:
         """Извлекает длительность аудио в секундах.
-        
+
         Args:
             path: Путь к аудиофайлу
-            
+
         Returns:
             Длительность в секундах или None если не удалось определить
         """
@@ -196,33 +204,33 @@ class AudioDurationExtractor(Protocol):
 
 class WaveDurationExtractor:
     """Извлекает длительность из WAV файлов используя встроенный модуль wave.
-    
+
     Быстрый и надежный метод для WAV файлов, не требует внешних зависимостей.
     Работает только с несжатыми WAV файлами.
     """
 
     def extract_duration(self, path: Path) -> Optional[float]:
         """Извлекает длительность из WAV файла через анализ заголовка.
-        
+
         Args:
             path: Путь к WAV файлу
-            
+
         Returns:
             Длительность в секундах или None для не-WAV файлов или при ошибке
         """
         # Проверяем расширение файла для быстрого исключения не-WAV файлов
         if path.suffix.lower() != ".wav":
             return None
-            
+
         try:
             # Используем contextlib для автоматического закрытия файла
             with contextlib.closing(wave.open(str(path), "rb")) as wf:
-                frames = wf.getnframes()      # Общее количество фреймов
-                rate = wf.getframerate()      # Частота дискретизации
-                
+                frames = wf.getnframes()  # Общее количество фреймов
+                rate = wf.getframerate()  # Частота дискретизации
+
                 # Избегаем деления на ноль
                 return frames / float(rate) if rate > 0 else None
-                
+
         except Exception as e:
             # Логируем на уровне debug, так как это ожидаемое поведение для некоторых файлов
             logger.debug("Не удалось извлечь длительность WAV для %s: %s", path, e)
@@ -231,17 +239,17 @@ class WaveDurationExtractor:
 
 class FFProbeDurationExtractor:
     """Извлекает длительность используя ffprobe (если доступен).
-    
+
     Универсальный метод для большинства аудио/видео форматов.
     Требует установленного FFmpeg в системе.
-    
+
     Атрибуты:
         timeout: Максимальное время ожидания выполнения ffprobe
     """
 
     def __init__(self, timeout: float = 5.0):
         """Инициализирует экстрактор с настраиваемым таймаутом.
-        
+
         Args:
             timeout: Максимальное время ожидания в секундах
         """
@@ -249,13 +257,13 @@ class FFProbeDurationExtractor:
 
     def extract_duration(self, path: Path) -> Optional[float]:
         """Извлекает длительность используя ffprobe.
-        
+
         Выполняет системный вызов ffprobe для получения метаданных файла.
         Обрабатывает различные типы ошибок и таймауты.
-        
+
         Args:
             path: Путь к аудиофайлу
-            
+
         Returns:
             Длительность в секундах или None при неудаче
         """
@@ -264,76 +272,79 @@ class FFProbeDurationExtractor:
             proc = subprocess.run(
                 [
                     "ffprobe",
-                    "-v", "error",                          # Подавляем лишний вывод
-                    "-show_entries", "format=duration",     # Показываем только длительность
-                    "-of", "default=noprint_wrappers=1:nokey=1",  # Формат вывода: только значение
+                    "-v",
+                    "error",  # Подавляем лишний вывод
+                    "-show_entries",
+                    "format=duration",  # Показываем только длительность
+                    "-of",
+                    "default=noprint_wrappers=1:nokey=1",  # Формат вывода: только значение
                     str(path),
                 ],
-                stdout=subprocess.PIPE,    # Захватываем стандартный вывод
-                stderr=subprocess.PIPE,    # Захватываем ошибки
-                text=True,                 # Декодируем как текст
-                timeout=self.timeout,      # Применяем таймаут
+                stdout=subprocess.PIPE,  # Захватываем стандартный вывод
+                stderr=subprocess.PIPE,  # Захватываем ошибки
+                text=True,  # Декодируем как текст
+                timeout=self.timeout,  # Применяем таймаут
             )
-            
+
             # Проверяем успешность выполнения команды
             if proc.returncode == 0:
                 val = proc.stdout.strip()
                 return float(val) if val else None
-                
+
         except (
-            subprocess.TimeoutExpired,    # Превышен таймаут
-            subprocess.SubprocessError,   # Ошибка выполнения
-            ValueError,                   # Не удалось преобразовать в float
-            FileNotFoundError,           # ffprobe не найден в системе
+            subprocess.TimeoutExpired,  # Превышен таймаут
+            subprocess.SubprocessError,  # Ошибка выполнения
+            ValueError,  # Не удалось преобразовать в float
+            FileNotFoundError,  # ffprobe не найден в системе
         ) as e:
             # Логируем на уровне debug - отсутствие ffprobe это нормально
             logger.debug("ffprobe не смог извлечь длительность для %s: %s", path, e)
-            
+
         return None
 
 
 class AudioDurationService:
     """Сервис для извлечения длительности аудиофайлов с множественными стратегиями.
-    
+
     Использует паттерн Chain of Responsibility для применения различных методов
     извлечения длительности в порядке приоритета. Обеспечивает максимальную
     совместимость с различными форматами файлов.
-    
+
     Стратегии применяются в порядке:
     1. WaveDurationExtractor - быстро для WAV файлов
     2. FFProbeDurationExtractor - универсально для остальных форматов
-    
+
     Атрибуты:
         extractors: Список экстракторов в порядке приоритета
     """
 
     def __init__(self) -> None:
         """Инициализирует сервис с предустановленными экстракторами.
-        
+
         Порядок экстракторов важен - более быстрые и специализированные
         должны идти первыми.
         """
         self.extractors: list[AudioDurationExtractor] = [
-            WaveDurationExtractor(),      # Быстрый метод для WAV
-            FFProbeDurationExtractor(),   # Универсальный метод
+            WaveDurationExtractor(),  # Быстрый метод для WAV
+            FFProbeDurationExtractor(),  # Универсальный метод
         ]
 
     def get_duration_seconds(
         self, path: Union[str, os.PathLike[str]]
     ) -> Optional[float]:
         """Получает длительность аудио в секундах используя доступные экстракторы.
-        
+
         Пробует каждый экстрактор по очереди до первого успешного результата.
         Это обеспечивает graceful fallback между различными методами.
-        
+
         Args:
             path: Путь к аудиофайлу (str или PathLike объект)
-            
+
         Returns:
             Длительность в секундах или None если не удалось определить
         """
         path_obj = Path(path)
-        
+
         # Проверяем существование файла перед попытками извлечения
         if not path_obj.exists():
             logger.debug("Аудиофайл не найден: %s", path_obj)
@@ -355,18 +366,18 @@ class AudioDurationService:
 
 class DeviceSelector:
     """Управляет автоматическим выбором устройства и типа вычислений.
-    
+
     Определяет оптимальное устройство (GPU/CPU) и тип данных для максимальной
     производительности на конкретной системе. Учитывает конфигурацию пользователя
     и доступность аппаратного обеспечения.
-    
+
     Атрибуты:
         config: Конфигурация транскрипции с настройками устройства
     """
 
     def __init__(self, config: TranscriptionConfig):
         """Инициализирует селектор с конфигурацией.
-        
+
         Args:
             config: Конфигурация с настройками использования GPU
         """
@@ -374,33 +385,33 @@ class DeviceSelector:
 
     def select_optimal_device(self) -> Tuple[DeviceType, ComputeType]:
         """Выбирает оптимальное устройство и тип вычислений.
-        
+
         Логика выбора:
         1. Если GPU разрешен в конфигурации И PyTorch доступен И CUDA доступна
            -> Используем CUDA с float16 (быстро + экономия памяти)
         2. Иначе -> Используем CPU с int8 (квантизация для ускорения)
-        
+
         Returns:
             Кортеж (тип_устройства, тип_вычислений)
         """
         if (
-            self.config.enable_gpu                    # GPU разрешен в настройках
-            and torch                                 # PyTorch доступен
-            and hasattr(torch, "cuda")               # CUDA модуль присутствует
-            and torch.cuda.is_available()            # CUDA устройство доступно
+            self.config.enable_gpu  # GPU разрешен в настройках
+            and torch  # PyTorch доступен
+            and hasattr(torch, "cuda")  # CUDA модуль присутствует
+            and torch.cuda.is_available()  # CUDA устройство доступно
         ):
             logger.debug("CUDA доступна - используем GPU ускорение")
             return DeviceType.CUDA, ComputeType.FLOAT16
-        
+
         logger.debug("Используем CPU (GPU отключен или недоступен)")
         return DeviceType.CPU, ComputeType.INT8
 
     def get_device_info(self) -> Dict[str, Any]:
         """Получает детальную информацию о доступных устройствах.
-        
+
         Собирает информацию о системе для диагностики и мониторинга.
         Полезно для отладки проблем с производительностью.
-        
+
         Returns:
             Словарь с информацией об устройствах:
             - available_devices: Список доступных устройств
@@ -413,7 +424,7 @@ class DeviceSelector:
         # Добавляем информацию о CUDA если PyTorch доступен
         if torch and hasattr(torch, "cuda"):
             info["cuda_available"] = torch.cuda.is_available()
-            
+
             if torch.cuda.is_available():
                 info["available_devices"].append("cuda")
                 info["cuda_device_count"] = torch.cuda.device_count()
@@ -424,17 +435,17 @@ class DeviceSelector:
 
 class WhisperModelCache:
     """Продвинутый менеджер кэширования моделей Whisper с LRU вытеснением и метриками.
-    
+
     Реализует intelligent кэширование для минимизации времени загрузки моделей.
     Использует LRU (Least Recently Used) алгоритм для оптимального использования памяти.
     Собирает детальную статистику для мониторинга производительности.
-    
+
     Особенности:
     - LRU вытеснение для оптимального использования памяти
     - Детальные метрики производительности (hits/misses/evictions)
     - Thread-safe операции (если не используется из разных потоков одновременно)
     - Graceful handling ошибок загрузки
-    
+
     Атрибуты:
         config: Конфигурация кэша
         max_size: Максимальное количество моделей в кэше
@@ -445,35 +456,35 @@ class WhisperModelCache:
 
     def __init__(self, config: TranscriptionConfig):
         """Инициализирует кэш с конфигурацией.
-        
+
         Args:
             config: Конфигурация с размером кэша и другими настройками
         """
         self.config = config
         self.max_size = config.cache_size
-        self._cache: Dict[str, Any] = {}              # Хранилище моделей
-        self._access_order: List[str] = []            # LRU порядок доступа
+        self._cache: Dict[str, Any] = {}  # Хранилище моделей
+        self._access_order: List[str] = []  # LRU порядок доступа
         self._stats = {"hits": 0, "misses": 0, "evictions": 0}  # Метрики
 
     def get_model(
         self, model_name: str, device: DeviceType, compute_type: ComputeType
     ) -> Any:
         """Получает или загружает модель Whisper с продвинутым кэшированием и метриками.
-        
+
         Реализует следующую логику:
         1. Проверка наличия в кэше (cache hit)
         2. При попадании - обновление LRU порядка
         3. При промахе - освобождение места и загрузка новой модели
         4. Обновление статистики на каждом этапе
-        
+
         Args:
             model_name: Название модели Whisper ('tiny', 'base', 'small', etc.)
             device: Тип устройства (CUDA/CPU)
             compute_type: Тип вычислений (float16/int8)
-            
+
         Returns:
             Загруженная модель Whisper
-            
+
         Raises:
             RuntimeError: Если faster-whisper не установлен
             Exception: Любые ошибки загрузки модели (проброшены выше)
@@ -526,23 +537,23 @@ class WhisperModelCache:
 
     def _update_access_order(self, cache_key: str) -> None:
         """Обновляет порядок доступа для LRU алгоритма.
-        
+
         Перемещает ключ в конец списка, отмечая его как недавно использованный.
         Это ключевая часть LRU реализации.
-        
+
         Args:
             cache_key: Ключ для перемещения в конец списка
         """
         # Удаляем ключ из текущей позиции (если есть)
         if cache_key in self._access_order:
             self._access_order.remove(cache_key)
-        
+
         # Добавляем в конец как наиболее недавно использованный
         self._access_order.append(cache_key)
 
     def _evict_if_needed(self) -> None:
         """Вытесняет наименее недавно использованные модели при заполнении кэша.
-        
+
         Реализует LRU eviction policy:
         - Удаляет модели с начала списка _access_order
         - Продолжает до освобождения достаточного места
@@ -555,7 +566,7 @@ class WhisperModelCache:
 
             # Берем наименее недавно использованную модель (начало списка)
             oldest_key = self._access_order.pop(0)
-            
+
             # Удаляем из кэша если ключ все еще присутствует
             if oldest_key in self._cache:
                 del self._cache[oldest_key]
@@ -564,7 +575,7 @@ class WhisperModelCache:
 
     def get_stats(self) -> ModelCacheStats:
         """Получает статистику производительности кэша.
-        
+
         Returns:
             Объект со статистикой включая hit ratio и список загруженных моделей
         """
@@ -577,7 +588,7 @@ class WhisperModelCache:
 
     def clear_cache(self) -> None:
         """Очищает все кэшированные модели.
-        
+
         Полезно для освобождения памяти или сброса состояния кэша.
         Сбрасывает статистику доступа, но сохраняет общие метрики.
         """
@@ -589,16 +600,16 @@ class WhisperModelCache:
 
 class TranscriptionService:
     """Расширенный сервис для операций транскрипции аудио с комплексными возможностями.
-    
+
     Главный сервисный класс, объединяющий все компоненты транскрипции в единую систему.
     Использует паттерн Dependency Injection для лучшей тестируемости и гибкости.
-    
+
     Архитектурные принципы:
     - Single Responsibility: каждый компонент отвечает за свою область
     - Dependency Injection: все зависимости инжектируются через конструктор
     - Comprehensive Monitoring: детальное логирование и метрики
     - Graceful Error Handling: корректная обработка всех типов ошибок
-    
+
     Атрибуты:
         config: Конфигурация сервиса
         model_cache: Менеджер кэширования моделей
@@ -614,10 +625,10 @@ class TranscriptionService:
         duration_service: Optional[AudioDurationService] = None,
     ) -> None:
         """Инициализирует сервис с поддержкой инъекции зависимостей.
-        
+
         Позволяет заменить любой компонент для тестирования или кастомизации.
         Создает компоненты по умолчанию если не предоставлены.
-        
+
         Args:
             config: Конфигурация сервиса (по умолчанию создается стандартная)
             model_cache: Кэш моделей (по умолчанию создается с конфигурацией)
@@ -635,28 +646,28 @@ class TranscriptionService:
         model_name: Optional[str] = None,
     ) -> TranscriptionResult:
         """Транскрибирует аудиофайл с расширенными метриками и обработкой ошибок.
-        
+
         Основной метод транскрипции с полным циклом обработки:
         1. Определение оптимального устройства и модели
         2. Загрузка/получение модели из кэша
         3. Выполнение транскрипции с замером времени
         4. Сборка результата с метриками
         5. Логирование производительности
-        
+
         Args:
             path: Путь к аудиофайлу для транскрипции
             model_name: Название модели (используется default_model из конфигурации если не указано)
-            
+
         Returns:
             TranscriptionResult с текстом, языком и метриками производительности
-            
+
         Raises:
             RuntimeError: Если faster-whisper недоступен
             Exception: Любые ошибки загрузки модели или транскрипции
         """
         # Используем модель по умолчанию если не указана
         model_name = model_name or self.config.default_model
-        
+
         # Определяем оптимальное устройство для данной системы
         device, compute_type = self.device_selector.select_optimal_device()
 
@@ -729,14 +740,14 @@ class TranscriptionService:
         model_name: Optional[str] = None,
     ) -> Union[TranscriptionResult, TranscriptionError]:
         """Безопасная обертка транскрипции с комплексной обработкой ошибок.
-        
+
         Не выбрасывает исключения, а возвращает объект ошибки с детальной информацией.
         Полезно для batch обработки, где одна ошибка не должна останавливать весь процесс.
-        
+
         Args:
             path: Путь к аудиофайлу для транскрипции
             model_name: Название модели (опционально)
-            
+
         Returns:
             TranscriptionResult при успехе или TranscriptionError при ошибке
         """
@@ -745,7 +756,7 @@ class TranscriptionService:
         except Exception as e:
             error_msg = f"Ошибка транскрипции для {path}: {e}"
             logger.error(error_msg)
-            
+
             # Создаем детальный объект ошибки для анализа
             return TranscriptionError(
                 message=str(e),
@@ -755,12 +766,12 @@ class TranscriptionService:
 
     def get_audio_duration(self, path: Union[str, os.PathLike[str]]) -> Optional[float]:
         """Получает длительность аудиофайла в секундах.
-        
+
         Делегирует вызов специализированному сервису длительности.
-        
+
         Args:
             path: Путь к аудиофайлу
-            
+
         Returns:
             Длительность в секундах или None если не удалось определить
         """
@@ -768,10 +779,10 @@ class TranscriptionService:
 
     def get_service_stats(self) -> Dict[str, Any]:
         """Получает комплексную статистику работы сервиса.
-        
+
         Собирает метрики со всех компонентов для мониторинга и оптимизации.
         Полезно для dashboard мониторинга и профилирования производительности.
-        
+
         Returns:
             Словарь со статистикой:
             - cache_stats: Метрики кэша моделей (попадания, промахи, коэффициент)
@@ -800,17 +811,17 @@ class TranscriptionService:
 
     def clear_cache(self) -> None:
         """Очищает кэш моделей.
-        
+
         Полезно для освобождения памяти или принудительной перезагрузки моделей.
         """
         self.model_cache.clear_cache()
 
     def warm_up_model(self, model_name: Optional[str] = None) -> None:
         """Предварительно загружает модель для ускорения первой транскрипции.
-        
+
         Устраняет задержку "холодного старта" путем предзагрузки модели в кэш.
         Особенно полезно в production среде для обеспечения стабильного времени отклика.
-        
+
         Args:
             model_name: Название модели для предзагрузки (используется default_model если не указано)
         """
@@ -843,18 +854,19 @@ _transcription_service = TranscriptionService(_default_config)
 # Эти функции сохраняют существующий API для совместимости с текущим кодом
 # Внутренне используют новую архитектуру сервисов
 
+
 def transcribe_file(
     path: Union[str, os.PathLike[str]], model_name: str
 ) -> Tuple[str, str]:
     """Legacy функция для обратной совместимости.
-    
+
     Обертка над новым TranscriptionService.transcribe_file()
     с упрощенным возвращаемым значением.
-    
+
     Args:
         path: Путь к аудиофайлу
         model_name: Название модели Whisper
-        
+
     Returns:
         Кортеж (текст, язык) как в оригинальном API
     """
@@ -866,14 +878,14 @@ def safe_transcribe(
     path: Union[str, os.PathLike[str]], model_name: str
 ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     """Legacy функция для обратной совместимости.
-    
+
     Обертка над новым TranscriptionService.safe_transcribe()
     с упрощенным возвращаемым значением.
-    
+
     Args:
         path: Путь к аудиофайлу
         model_name: Название модели Whisper
-        
+
     Returns:
         Кортеж (текст, язык, ошибка) как в оригинальном API
         При успехе: (текст, язык, None)
@@ -888,12 +900,12 @@ def safe_transcribe(
 
 def get_audio_duration_seconds(path: Union[str, os.PathLike[str]]) -> Optional[float]:
     """Legacy функция для обратной совместимости.
-    
+
     Обертка над новым TranscriptionService.get_audio_duration()
-    
+
     Args:
         path: Путь к аудиофайлу
-        
+
     Returns:
         Длительность в секундах или None
     """
@@ -905,11 +917,12 @@ def get_audio_duration_seconds(path: Union[str, os.PathLike[str]]) -> Optional[f
 # ============================================================================
 # Новые функции для работы с расширенными возможностями сервиса
 
+
 def get_transcription_stats() -> Dict[str, Any]:
     """Получает текущую статистику сервиса транскрипции.
-    
+
     Удобная функция для мониторинга производительности глобального сервиса.
-    
+
     Returns:
         Словарь со статистикой кэша, устройств и конфигурации
     """
@@ -918,7 +931,7 @@ def get_transcription_stats() -> Dict[str, Any]:
 
 def warm_up_default_model() -> None:
     """Предзагружает модель транскрипции по умолчанию.
-    
+
     Устраняет задержку первого вызова путем предварительной загрузки модели в кэш.
     Рекомендуется вызывать при старте приложения в production среде.
     """
@@ -927,7 +940,7 @@ def warm_up_default_model() -> None:
 
 def clear_model_cache() -> None:
     """Очищает глобальный кэш моделей.
-    
+
     Освобождает память, занятую кэшированными моделями.
     Полезно для управления памятью в долгоживущих приложениях.
     """
@@ -938,21 +951,21 @@ def create_transcription_service(
     config: Optional[TranscriptionConfig] = None,
 ) -> TranscriptionService:
     """Фабричная функция для создания нового экземпляра TranscriptionService.
-    
+
     Позволяет создавать сервисы с кастомными конфигурациями для специфических задач.
     Каждый сервис имеет собственный кэш и настройки.
-    
+
     Args:
         config: Кастомная конфигурация (создается стандартная если не указана)
-        
+
     Returns:
         Новый экземпляр TranscriptionService
-        
+
     Example:
         # Создание сервиса с большим кэшем для batch обработки
         config = TranscriptionConfig(cache_size=16, beam_size=5)
         service = create_transcription_service(config)
-        
+
         # Создание сервиса только для CPU
         cpu_config = TranscriptionConfig(enable_gpu=False)
         cpu_service = create_transcription_service(cpu_config)
