@@ -15,6 +15,10 @@ COPY pyproject.toml poetry.lock* README.md ./
 COPY src ./src
 COPY src/audioscribetranslate/db/wait_for_postgres.py ./wait_for_postgres.py
 
+# Копирование файлов миграций Alembic
+COPY alembic.ini ./
+COPY alembic ./alembic
+
 # Установка зависимостей через poetry и psycopg2 для wait_for_postgres
 RUN poetry config virtualenvs.create false \
     && poetry install --no-interaction --no-ansi --only main \

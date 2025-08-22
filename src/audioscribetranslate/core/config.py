@@ -1,9 +1,21 @@
 import os
 from functools import lru_cache
-from typing import List
+from typing import Any, List
 
 from pydantic import PostgresDsn, RedisDsn
 from pydantic_settings import BaseSettings
+
+
+def get_env_file() -> str:
+    """Динамически определяет файл окружения на основе ENV переменной."""
+    env_mapping = {
+        "local": ".env.local",
+        "docker": ".env",
+        "production": ".env.production",
+    }
+
+    current_env = os.getenv("ENV", "local")
+    return env_mapping.get(current_env, ".env.local")
 
 
 class Settings(BaseSettings):
@@ -24,10 +36,10 @@ class Settings(BaseSettings):
             return [m.strip() for m in self.whisper_models.split(",") if m.strip()]
         return []
 
-    class Config:
-        env_file = ".env.local" if os.getenv("ENV", "local") == "local" else ".env"
-        env_file_encoding = "utf-8"
-        extra = "ignore"
+    @property
+    def current_env_file(self) -> str:
+        """Возвращает текущий используемый файл окружения."""
+        return get_env_file()
 
     @property
     def database_url(self) -> str:
@@ -43,7 +55,22 @@ class Settings(BaseSettings):
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
 
+    model_config = {"env_file_encoding": "utf-8", "extra": "ignore"}
+
+
+def create_settings(**kwargs: Any) -> Settings:
+    """Создает экземпляр Settings с правильным env_file."""
+    env_file = get_env_file()
+
+    # Создаем динамический класс с правильным env_file
+    class DynamicSettings(Settings):
+        model_config = Settings.model_config.copy()
+
+    DynamicSettings.model_config["env_file"] = env_file
+
+    return DynamicSettings(**kwargs)
+
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    return create_settings()

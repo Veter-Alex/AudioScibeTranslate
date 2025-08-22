@@ -42,7 +42,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
 app = FastAPI(title="AudioScribeTranslate API", lifespan=lifespan)
 
 
-@app.get("/")
+@app.get("/", response_model=dict)
 def read_root() -> dict[str, str]:
     return {"message": "AudioScribeTranslate backend is running!"}
 
