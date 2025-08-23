@@ -27,6 +27,7 @@ services:
     volumes:
       - ./src:/app/src
       - ./.env:/app/.env
+      - ./uploaded_files:/app/uploaded_files
     env_file:
       - .env
     depends_on:
@@ -37,10 +38,11 @@ services:
 
   celery:
     build: .
-    command: python src/audioscribetranslate/worker_manager.py
+    command: celery -A src.audioscribetranslate.core.tasks worker --loglevel=info --queues=processing_chains --pool=solo
     volumes:
       - ./src:/app/src
       - ./.env:/app/.env
+      - ./uploaded_files:/app/uploaded_files
       - /var/run/docker.sock:/var/run/docker.sock # Для управления Docker контейнерами
     env_file:
       - .env

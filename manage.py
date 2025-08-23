@@ -140,36 +140,58 @@ def show_chains_status() -> None:
 from src.audioscribetranslate.core.chain_manager import get_chain_manager
 from src.audioscribetranslate.core.config import get_settings
 import psutil
+import traceback
 
-manager = get_chain_manager()
-settings = get_settings()
-
-print(f"Доступно памяти: {psutil.virtual_memory().available / (1024**3):.1f} GB")
-print(f"Минимум для запуска: {settings.min_free_memory_gb} GB")
-print(f"Максимум воркеров: {settings.max_workers}")
-print(f"Включены цепочки: {'Да' if settings.enable_processing_chains else 'Нет'}")
-
-# Статус очереди
-from sqlalchemy import create_engine, select
-from sqlalchemy.orm import sessionmaker
-from src.audioscribetranslate.models.audio_file import AudioFile
-
-engine = create_engine(settings.sync_database_url)
-SessionLocal = sessionmaker(bind=engine)
-with SessionLocal() as session:
-    queued = session.execute(select(AudioFile).where(AudioFile.status == 'queued')).scalars().all()
-    processing = session.execute(select(AudioFile).where(AudioFile.status == 'processing')).scalars().all()
-    print(f"Файлов в очереди: {len(queued)}")
-    print(f"Файлов в обработке: {len(processing)}")
+try:
+    manager = get_chain_manager()
+    settings = get_settings()
+    print("--- СТАТУС ЦЕПОЧЕК ОБРАБОТКИ ---")
+    print(f"Доступно памяти: {psutil.virtual_memory().available / (1024**3):.1f} GB")
+    print(f"Минимум для запуска: {settings.min_free_memory_gb} GB")
+    print(f"Максимум воркеров: {settings.max_workers}")
+    print(f"Включены цепочки: {'Да' if settings.enable_processing_chains else 'Нет'}")
+    # Статус очереди
+    from sqlalchemy import create_engine, select
+    from sqlalchemy.orm import sessionmaker
+    from src.audioscribetranslate.models.audio_file import AudioFile
+    engine = create_engine(settings.sync_database_url)
+    SessionLocal = sessionmaker(bind=engine)
+    with SessionLocal() as session:
+        queued = session.execute(select(AudioFile).where(AudioFile.status == 'queued')).scalars().all()
+        processing = session.execute(select(AudioFile).where(AudioFile.status == 'processing')).scalars().all()
+        print(f"Файлов в очереди: {len(queued)}")
+        print(f"Файлов в обработке: {len(processing)}")
+        if queued:
+            print("Queued файлы:")
+            for f in queued:
+                print(f"  - id={f.id}, filename={f.filename}, model={f.whisper_model}, user={f.user_id}")
+        if processing:
+            print("Processing файлы:")
+            for f in processing:
+                print(f"  - id={f.id}, filename={f.filename}, model={f.whisper_model}, user={f.user_id}")
+    # Статус воркеров
+    if hasattr(manager, 'workers'):
+        print(f"Активных воркеров: {len(manager.workers)}")
+        for wid, worker in manager.workers.items():
+            try:
+                status = 'running' if worker.is_running() else 'stopped'
+                mem = worker.get_memory_usage_mb() if hasattr(worker, 'get_memory_usage_mb') else 'n/a'
+                print(f"  - {wid}: PID={getattr(worker.process, 'pid', 'n/a')}, status={status}, memory={mem} MB")
+            except Exception as e:
+                print(f"  - {wid}: ошибка получения статуса воркера: {e}")
+    else:
+        print("Нет информации о воркерах (менеджер не инициализирован или нет активных воркеров)")
+    print("--- КОНЕЦ СТАТУСА ---")
+except Exception as e:
+    print(f"❌ Ошибка получения статуса: {e}")
+    print(traceback.format_exc())
                 """
             ],
             capture_output=True,
             text=True,
             check=True,
         )
-
         print(result.stdout)
-
     except subprocess.CalledProcessError as e:
         print(f"❌ Ошибка получения статуса цепочек: {e}")
         if e.stderr:
