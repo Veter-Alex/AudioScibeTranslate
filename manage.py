@@ -18,11 +18,16 @@ def run_local() -> bool:
         print("❌ Файл .env.local не найден!")
         return False
 
+    # Определяем путь к Poetry
+    poetry_path = os.path.join(os.getenv("APPDATA", ""), "Python", "Scripts", "poetry.exe")
+    if not Path(poetry_path).exists():
+        poetry_path = "poetry"  # Fallback на системную команду
+
     try:
         # Запуск через Poetry
         subprocess.run(
             [
-                "poetry",
+                poetry_path,
                 "run",
                 "uvicorn",
                 "src.audioscribetranslate.main:app",
@@ -92,13 +97,18 @@ def run_worker_manager() -> None:
     current_env = os.getenv("ENV", "local")
     print(f"   Окружение: {current_env}")
 
+    # Определяем путь к Poetry
+    poetry_path = os.path.join(os.getenv("APPDATA", ""), "Python", "Scripts", "poetry.exe")
+    if not Path(poetry_path).exists():
+        poetry_path = "poetry"  # Fallback на системную команду
+
     try:
         # Устанавливаем зависимости если нужно
-        subprocess.run(["poetry", "install"], check=True, capture_output=True)
+        subprocess.run([poetry_path, "install"], check=True, capture_output=True)
 
         # Запускаем менеджер воркеров
         subprocess.run(
-            ["poetry", "run", "python", "src/audioscribetranslate/worker_manager.py"],
+            [poetry_path, "run", "python", "src/audioscribetranslate/worker_manager.py"],
             check=True,
         )
 
@@ -112,11 +122,16 @@ def show_worker_status() -> None:
     """Показать статус воркеров"""
     print("📊 Статус воркеров:")
 
+    # Определяем путь к Poetry
+    poetry_path = os.path.join(os.getenv("APPDATA", ""), "Python", "Scripts", "poetry.exe")
+    if not Path(poetry_path).exists():
+        poetry_path = "poetry"  # Fallback на системную команду
+
     try:
         # Запускаем команду статуса
         result = subprocess.run(
             [
-                "poetry",
+                poetry_path,
                 "run",
                 "python",
                 "src/audioscribetranslate/worker_manager.py",
@@ -139,10 +154,15 @@ def stop_workers() -> None:
     """Остановить воркеры"""
     print("⏹️ Остановка воркеров...")
 
+    # Определяем путь к Poetry
+    poetry_path = os.path.join(os.getenv("APPDATA", ""), "Python", "Scripts", "poetry.exe")
+    if not Path(poetry_path).exists():
+        poetry_path = "poetry"  # Fallback на системную команду
+
     try:
         result = subprocess.run(
             [
-                "poetry",
+                poetry_path,
                 "run",
                 "python",
                 "src/audioscribetranslate/worker_manager.py",
