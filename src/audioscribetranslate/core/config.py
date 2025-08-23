@@ -1,6 +1,6 @@
 import os
 from functools import lru_cache
-from typing import Any, List
+from typing import Any, List, Optional
 
 from pydantic import PostgresDsn, RedisDsn
 from pydantic_settings import BaseSettings
@@ -31,7 +31,48 @@ def get_env_file() -> str:
     return env_mapping.get(current_env, ".env.local")
 
 
+def is_running_in_docker() -> bool:
+    """
+    Определяет, выполняется ли код внутри Docker контейнера.
+
+    Returns:
+        bool: True если код выполняется в Docker, False иначе.
+    """
+    # Проверяем наличие файла /.dockerenv (стандартный индикатор Docker)
+    if os.path.exists("/.dockerenv"):
+        return True
+    
+    # Проверяем переменные окружения, устанавливаемые Docker
+    if os.getenv("DOCKER_CONTAINER"):
+        return True
+        
+    # Проверяем контрольную группу процесса (в Docker содержит "docker")
+    try:
+        with open("/proc/1/cgroup", "r") as f:
+            return "docker" in f.read()
+    except (FileNotFoundError, PermissionError):
+        pass
+    
+    return False
+
+
 class Settings(BaseSettings):
+    def __init__(self, **kwargs: Any) -> None:
+        # Сначала определяем env_file
+        env_file = kwargs.pop('_env_file', None)
+        if env_file is None:
+            env_file = get_env_file()
+        
+        # Создаем объект с правильным env_file
+        super().__init__(_env_file=env_file, **kwargs)
+        self._used_env_file = env_file
+        
+        # Устанавливаем хост базы данных в зависимости от того, запускается ли код в Docker
+        if not self.postgres_host:
+            if is_running_in_docker():
+                self.postgres_host = "db"  # Внутри Docker используем сервис 'db'
+            else:
+                self.postgres_host = "localhost"  # Снаружи Docker используем localhost
     """
     Класс конфигурации приложения, основанный на pydantic BaseSettings.
 
@@ -59,11 +100,11 @@ class Settings(BaseSettings):
         settings = Settings()
         print(settings.postgres_host)
     """
-    postgres_host: str = "localhost"
+    postgres_host: str = ""  # Будет установлен в __init__
     postgres_port: int = 5432
-    postgres_db: str = "postgres"
+    postgres_db: str = "audioscribetranslate"
     postgres_user: str = "postgres"
-    postgres_password: str = "password"
+    postgres_password: str = "postgres"
     redis_url: str = "redis://localhost:6379/0"
     secret_key: str = "your-secret-key"
     celery_broker_url: str = "redis://localhost:6379/1"
@@ -99,11 +140,17 @@ class Settings(BaseSettings):
     @property
     def current_env_file(self) -> str:
         """
-        Возвращает текущий используемый файл окружения.
+        Возвращает фактически используемый файл окружения.
 
         Returns:
             str: Имя файла окружения.
         """
+        # Если явно передан _env_file, возвращаем его
+        if hasattr(self, '_used_env_file'):
+            return str(self._used_env_file)
+        env_file = getattr(self, '_env_file', None)
+        if env_file:
+            return str(env_file)
         return get_env_file()
 
     @property
@@ -161,10 +208,9 @@ def create_settings(**kwargs: Any) -> Settings:
     return DynamicSettings(**kwargs)
 
 
-@lru_cache
 def get_settings() -> Settings:
     """
-    Кэширует и возвращает глобальный экземпляр Settings.
+    Всегда возвращает экземпляр Settings с актуальным env-файлом (без кэширования по ENV).
 
     Returns:
         Settings: Глобальный экземпляр конфигурации.

@@ -1,3 +1,7 @@
+import pytest
+import pytest_asyncio
+from sqlalchemy import text
+
 """
 Фикстуры для изолированного асинхронного тестирования с отдельной базой данных.
 
@@ -11,16 +15,20 @@ Pitfalls:
 - TRUNCATE очищает все таблицы, не используйте в production
 """
 
+import sys
+from pathlib import Path
+
+SRC_PATH = Path(__file__).parent.parent / "src"
+if str(SRC_PATH) not in sys.path:
+    sys.path.insert(0, str(SRC_PATH))
+
 import asyncio
 import os
 from collections.abc import AsyncGenerator
 from typing import Generator
 
-import pytest
-import pytest_asyncio
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -64,7 +72,9 @@ async def test_engine() -> AsyncGenerator[object, None]:
         - Alembic должен быть настроен на тестовую БД
         - TRUNCATE удаляет все данные
     """
-    settings = get_settings()
+    # Принудительно используем localhost для тестов
+    from audioscribetranslate.core.config import Settings
+    settings = Settings(postgres_host="localhost")
     engine = create_async_engine(settings.database_url, future=True)
     # Применяем миграции Alembic к тестовой БД
     alembic_cfg = Config(
@@ -109,6 +119,9 @@ def override_get_db(db_session: AsyncSession) -> None:
     """
     async def _override() -> AsyncGenerator[AsyncSession, None]:
         yield db_session
+
+    app.dependency_overrides[get_db] = _override
+    return
 
     app.dependency_overrides[get_db] = _override
     return
