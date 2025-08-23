@@ -536,3 +536,184 @@ def enqueue_summary(
             )
             session.commit()
             return False, int(getattr(row, "id"))
+
+
+# ============= ЦЕПОЧКИ ОБРАБОТКИ (Processing Chains) =============
+
+from typing import Any, Dict
+
+import psutil
+from celery import chain, group
+
+
+def check_memory_available() -> bool:
+    """
+    Проверяет, достаточно ли свободной памяти для запуска новой цепочки обработки.
+    
+    Returns:
+        bool: True если памяти достаточно, False иначе
+    """
+    memory = psutil.virtual_memory()
+    available_gb = float(memory.available / (1024**3))
+    required_gb = float(settings.min_free_memory_gb)
+    
+    logger.info(f"Доступно памяти: {available_gb:.1f} GB, требуется: {required_gb} GB")
+    return available_gb >= required_gb
+
+
+def get_queued_audio_files_count() -> int:
+    """
+    Получает количество аудиофайлов в очереди на обработку.
+    
+    Returns:
+        int: Количество файлов в очереди
+    """
+    engine = create_engine(settings.sync_database_url, future=True)
+    SessionLocal = sessionmaker(bind=engine, expire_on_commit=False, future=True)
+    
+    with SessionLocal() as session:
+        result = session.execute(
+            select(AudioFile).where(AudioFile.status == "queued")
+        )
+        count = len(result.scalars().all())
+        logger.info(f"Файлов в очереди: {count}")
+        return count
+
+
+@celery_app.task  # type: ignore
+def process_audio_file_chain(audio_id: int, target_language: str = "ru") -> Dict[str, Any]:
+    """
+    Полная цепочка обработки аудиофайла: транскрибирование -> перевод -> саммари.
+    Выполняется последовательно в одном воркере.
+    
+    Args:
+        audio_id (int): ID аудиофайла
+        target_language (str): Целевой язык для перевода и саммари
+    
+    Returns:
+        Dict[str, Any]: Результат обработки с ID всех созданных объектов
+    """
+    logger.info(f"[CHAIN] Начинаем обработку цепочки для аудио ID={audio_id}")
+    
+    result: Dict[str, Any] = {
+        "audio_id": audio_id,
+        "transcript_id": None,
+        "translation_id": None,
+        "summary_id": None,
+        "status": "processing",
+        "errors": []
+    }
+    
+    try:
+        # 1. Транскрибирование
+        logger.info(f"[CHAIN] Шаг 1/3: Транскрибирование аудио ID={audio_id}")
+        transcribe_audio(audio_id)
+        
+        # Получаем созданный транскрипт
+        engine = create_engine(settings.sync_database_url, future=True)
+        SessionLocal = sessionmaker(bind=engine, expire_on_commit=False, future=True)
+        
+        with SessionLocal() as session:
+            transcript = session.execute(
+                select(Transcript).where(Transcript.audio_file_id == audio_id)
+            ).scalar_one_or_none()
+            
+            if not transcript or transcript.status != "done":
+                raise Exception(f"Транскрибирование не удалось для аудио ID={audio_id}")
+            
+            result["transcript_id"] = int(transcript.id)
+            logger.info(f"[CHAIN] Транскрипт создан: ID={transcript.id}")
+            
+            # 2. Перевод
+            if target_language != transcript.language:
+                logger.info(f"[CHAIN] Шаг 2/3: Перевод с {transcript.language} на {target_language}")
+                success, translation_id = enqueue_translation(
+                    transcript_id=int(transcript.id),
+                    target_language=target_language
+                )
+                
+                if success and translation_id:
+                    # Ждем завершения перевода и запускаем его
+                    translate_transcript(translation_id)
+                    
+                    # Проверяем результат
+                    translation = session.get(Translation, translation_id)
+                    if not translation or translation.status != "done":
+                        raise Exception(f"Перевод не удался для транскрипта ID={transcript.id}")
+                    
+                    result["translation_id"] = translation_id
+                    logger.info(f"[CHAIN] Перевод создан: ID={translation_id}")
+                    
+                    # 3. Саммари
+                    logger.info(f"[CHAIN] Шаг 3/3: Создание саммари")
+                    success, summary_id = enqueue_summary(
+                        translation_id=translation_id,
+                        target_language=target_language
+                    )
+                    
+                    if success and summary_id:
+                        # Ждем завершения саммари и запускаем его
+                        summarize_translation(summary_id)
+                        
+                        # Проверяем результат
+                        summary = session.get(Summary, summary_id)
+                        if not summary or summary.status != "done":
+                            raise Exception(f"Саммари не удалось для перевода ID={translation_id}")
+                        
+                        result["summary_id"] = summary_id
+                        logger.info(f"[CHAIN] Саммари создано: ID={summary_id}")
+                    else:
+                        result["errors"].append("Не удалось создать задачу саммари")
+                else:
+                    result["errors"].append("Не удалось создать задачу перевода")
+            else:
+                logger.info(f"[CHAIN] Перевод не требуется (язык уже {target_language})")
+                
+        result["status"] = "completed"
+        logger.info(f"[CHAIN] Цепочка завершена для аудио ID={audio_id}")
+        
+    except Exception as e:
+        result["status"] = "failed"
+        result["errors"].append(str(e))
+        logger.error(f"[CHAIN] Ошибка в цепочке для аудио ID={audio_id}: {e}")
+        logger.error(traceback.format_exc())
+    
+    return result
+
+
+def enqueue_audio_chain(audio_id: int, target_language: str = "ru") -> bool:
+    """
+    Ставит в очередь полную цепочку обработки аудиофайла.
+    
+    Args:
+        audio_id (int): ID аудиофайла
+        target_language (str): Целевой язык
+        
+    Returns:
+        bool: True если задача поставлена в очередь
+    """
+    try:
+        # Проверяем доступность памяти
+        if not check_memory_available():
+            logger.warning(f"[CHAIN] Недостаточно памяти для запуска цепочки аудио ID={audio_id}")
+            return False
+            
+        # Ставим задачу в специальную очередь цепочек
+        celery_app.send_task(
+            "src.audioscribetranslate.core.tasks.process_audio_file_chain",
+            args=[audio_id, target_language],
+            queue="processing_chains"
+        )
+        
+        logger.info(f"[CHAIN] Цепочка для аудио ID={audio_id} поставлена в очередь")
+        return True
+        
+    except Exception as e:
+        logger.error(f"[CHAIN] Ошибка постановки цепочки в очередь для аудио ID={audio_id}: {e}")
+        return False
+
+
+# Обновляем настройки маршрутизации для новых очередей
+celery_app.conf.task_routes.update({
+    "src.audioscribetranslate.core.tasks.process_audio_file_chain": {"queue": "processing_chains"},
+})

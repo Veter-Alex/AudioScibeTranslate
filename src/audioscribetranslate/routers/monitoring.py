@@ -1,250 +1,164 @@
 """
-API эндпоинты для мониторинга системы и управления воркерами
+Маршруты для мониторинга системы обработки цепочек.
 """
+import logging
+from typing import Any, Dict, List
 
-from typing import Any, Dict
+from fastapi import APIRouter, HTTPException
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
 
-from audioscribetranslate.core.config import get_settings
-from audioscribetranslate.core.memory_monitor import memory_monitor
-from audioscribetranslate.db.session import get_db
+from audioscribetranslate.core.chain_manager import ProcessingChainManager
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/monitoring", tags=["monitoring"])
 
+# Глобальная переменная для chain_manager будет инициализирована при старте приложения
+chain_manager: ProcessingChainManager = None
 
-@router.get("/status", response_model=Dict[str, Any])
-def get_system_status() -> Dict[str, Any]:
-    """
-    Получить статус системы мониторинга и воркеров.
 
-    Returns:
-        dict: Статус системы, данные мониторинга, сообщение.
+def set_chain_manager(manager: ProcessingChainManager):
+    """Устанавливает менеджер цепочек для использования в роутах."""
+    global chain_manager
+    chain_manager = manager
 
-    Raises:
-        HTTPException: В случае ошибки получения статуса.
 
-    Example:
-        GET /monitoring/status
-
-    Pitfalls:
-        - Ошибки при получении статуса воркеров или памяти.
-    """
+@router.get("/status")
+async def get_monitoring_status() -> Dict[str, Any]:
+    """Возвращает общий статус системы мониторинга."""
+    if not chain_manager:
+        raise HTTPException(status_code=503, detail="Chain manager не инициализирован")
+    
     try:
-        status = memory_monitor.get_status()
-        return {
-            "status": "success",
-            "data": status,
-            "message": "Статус системы получен успешно",
+        # Базовая информация о системе
+        status = {
+            "service": "AudioScribeTranslate Monitoring",
+            "status": "active",
+            "chain_manager_active": chain_manager.is_running if hasattr(chain_manager, 'is_running') else True
         }
+        
+        # Добавляем информацию о памяти если psutil доступен
+        if PSUTIL_AVAILABLE:
+            memory = psutil.virtual_memory()
+            status.update({
+                "memory": {
+                    "total_gb": round(memory.total / (1024**3), 2),
+                    "available_gb": round(memory.available / (1024**3), 2),
+                    "used_percent": memory.percent,
+                    "free_gb": round((memory.total - memory.used) / (1024**3), 2)
+                }
+            })
+        
+        return status
+        
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Ошибка получения статуса системы: {str(e)}"
-        )
+        logger.error(f"Ошибка получения статуса мониторинга: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка мониторинга: {str(e)}")
 
 
-@router.get("/memory", response_model=Dict[str, Any])
-def get_memory_info() -> Dict[str, Any]:
-    """
-    Получить детальную информацию о памяти.
-
-    Returns:
-        dict: Статус, данные о памяти, сообщение.
-
-    Raises:
-        HTTPException: В случае ошибки получения информации.
-
-    Example:
-        GET /monitoring/memory
-    """
+@router.get("/workers")
+async def get_worker_info() -> Dict[str, Any]:
+    """Возвращает информацию о воркерах цепочек обработки."""
+    if not chain_manager:
+        raise HTTPException(status_code=503, detail="Chain manager не инициализирован")
+    
     try:
-        memory_info = memory_monitor.get_memory_info()
-        return {
-            "status": "success",
-            "data": {
-                "total_gb": round(memory_info.total_gb, 2),
-                "available_gb": round(memory_info.available_gb, 2),
-                "used_gb": round(memory_info.used_gb, 2),
-                "free_gb": round(memory_info.free_gb, 2),
-                "percent_used": round(memory_info.percent_used, 1),
-                "threshold_gb": memory_monitor.memory_threshold_gb,
-                "optimal_workers": memory_monitor.calculate_optimal_workers(
-                    memory_info
-                ),
+        workers_info = {
+            "active_workers": 0,
+            "worker_processes": [],
+            "queue_info": {
+                "processing_chains": "unknown"
+            }
+        }
+        
+        # Получаем информацию о активных воркерах из chain_manager
+        if hasattr(chain_manager, 'workers'):
+            workers_info["active_workers"] = len(chain_manager.workers)
+            
+            # Детальная информация о каждом воркере
+            for worker_id, worker in chain_manager.workers.items():
+                worker_info = {
+                    "id": worker_id,
+                    "status": "running" if hasattr(worker, 'process') and worker.process.is_alive() else "stopped",
+                    "pid": worker.process.pid if hasattr(worker, 'process') and worker.process.is_alive() else None
+                }
+                
+                # Добавляем информацию об использовании ресурсов если доступно
+                if PSUTIL_AVAILABLE and worker_info["pid"]:
+                    try:
+                        proc = psutil.Process(worker_info["pid"])
+                        worker_info["memory_mb"] = round(proc.memory_info().rss / (1024**2), 2)
+                        worker_info["cpu_percent"] = round(proc.cpu_percent(), 2)
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        pass
+                
+                workers_info["worker_processes"].append(worker_info)
+        
+        return workers_info
+        
+    except Exception as e:
+        logger.error(f"Ошибка получения информации о воркерах: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка получения информации о воркерах: {str(e)}")
+
+
+@router.get("/memory")
+async def get_memory_info() -> Dict[str, Any]:
+    """Возвращает детальную информацию о памяти системы."""
+    if not PSUTIL_AVAILABLE:
+        raise HTTPException(status_code=503, detail="psutil не доступен для мониторинга памяти")
+    
+    try:
+        # Виртуальная память
+        memory = psutil.virtual_memory()
+        
+        # Swap память
+        swap = psutil.swap_memory()
+        
+        memory_info = {
+            "virtual_memory": {
+                "total_gb": round(memory.total / (1024**3), 2),
+                "available_gb": round(memory.available / (1024**3), 2),
+                "used_gb": round(memory.used / (1024**3), 2),
+                "free_gb": round(memory.free / (1024**3), 2),
+                "percent_used": memory.percent,
+                "buffers_gb": round(memory.buffers / (1024**3), 2) if hasattr(memory, 'buffers') else 0,
+                "cached_gb": round(memory.cached / (1024**3), 2) if hasattr(memory, 'cached') else 0
             },
-            "message": "Информация о памяти получена успешно",
+            "swap_memory": {
+                "total_gb": round(swap.total / (1024**3), 2),
+                "used_gb": round(swap.used / (1024**3), 2),
+                "free_gb": round(swap.free / (1024**3), 2),
+                "percent_used": swap.percent
+            }
         }
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Ошибка получения информации о памяти: {str(e)}"
-        )
-
-
-@router.get("/workers", response_model=Dict[str, Any])
-def get_workers_info() -> Dict[str, Any]:
-    """
-    Получить информацию о Celery воркерах.
-
-    Returns:
-        dict: Статус, данные о воркерах, сообщение.
-
-    Raises:
-        HTTPException: В случае ошибки получения информации.
-
-    Example:
-        GET /monitoring/workers
-    """
-    try:
-        workers = memory_monitor.get_celery_workers()
-        return {
-            "status": "success",
-            "data": {
-                "active_count": len(memory_monitor._active_workers),
-                "system_processes": [
-                    {
-                        "pid": w.pid,
-                        "name": w.name,
-                        "memory_mb": round(w.memory_mb, 1),
-                        "cpu_percent": round(w.cpu_percent, 1),
-                        "status": w.status,
-                    }
-                    for w in workers
-                ],
-                "managed_workers": len(memory_monitor._active_workers),
-                "config": {
-                    "max_workers": memory_monitor.max_workers,
-                    "min_workers": memory_monitor.min_workers,
-                    "memory_limit_gb": memory_monitor.worker_memory_limit_gb,
-                    "auto_scaling": memory_monitor.auto_scaling_enabled,
-                },
-            },
-            "message": "Информация о воркерах получена успешно",
+        
+        # CPU информация
+        cpu_info = {
+            "cpu_percent": psutil.cpu_percent(interval=1),
+            "cpu_count_logical": psutil.cpu_count(),
+            "cpu_count_physical": psutil.cpu_count(logical=False),
+            "load_average": psutil.getloadavg() if hasattr(psutil, 'getloadavg') else None
         }
+        
+        memory_info["cpu"] = cpu_info
+        
+        return memory_info
+        
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Ошибка получения информации о воркерах: {str(e)}"
-        )
+        logger.error(f"Ошибка получения информации о памяти: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка получения информации о памяти: {str(e)}")
 
 
-@router.post("/workers/scale", response_model=Dict[str, Any])
-def scale_workers(target_workers: int) -> Dict[str, Any]:
-    """
-    Ручное масштабирование количества воркеров.
-
-    Args:
-        target_workers (int): Целевое количество воркеров.
-
-    Returns:
-        dict: Статус, информация о масштабировании, сообщение.
-
-    Raises:
-        HTTPException: Если количество вне допустимого диапазона или ошибка масштабирования.
-
-    Example:
-        POST /monitoring/workers/scale
-    """
-    if not (memory_monitor.min_workers <= target_workers <= memory_monitor.max_workers):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Количество воркеров должно быть между {memory_monitor.min_workers} и {memory_monitor.max_workers}",
-        )
-
-    try:
-        current_count = len(memory_monitor._active_workers)
-        memory_monitor.scale_workers(target_workers)
-
-        return {
-            "status": "success",
-            "data": {
-                "previous_count": current_count,
-                "target_count": target_workers,
-                "current_count": len(memory_monitor._active_workers),
-            },
-            "message": f"Воркеры масштабированы с {current_count} до {target_workers}",
-        }
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Ошибка масштабирования воркеров: {str(e)}"
-        )
-
-
-@router.post("/monitoring/start", response_model=Dict[str, Any])
-def start_monitoring() -> Dict[str, Any]:
-    """
-    Запустить мониторинг памяти и автомасштабирование.
-
-    Returns:
-        dict: Статус и сообщение о запуске мониторинга.
-
-    Raises:
-        HTTPException: В случае ошибки запуска.
-
-    Example:
-        POST /monitoring/monitoring/start
-    """
-    try:
-        if (
-            memory_monitor._monitoring_thread
-            and memory_monitor._monitoring_thread.is_alive()
-        ):
-            return {"status": "info", "message": "Мониторинг уже запущен"}
-
-        memory_monitor.start_monitoring()
-
-        return {"status": "success", "message": "Мониторинг памяти запущен"}
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Ошибка запуска мониторинга: {str(e)}"
-        )
-
-
-@router.post("/monitoring/stop", response_model=Dict[str, Any])
-def stop_monitoring() -> Dict[str, Any]:
-    """
-    Остановить мониторинг памяти и автомасштабирование.
-
-    Returns:
-        dict: Статус и сообщение об остановке мониторинга.
-
-    Raises:
-        HTTPException: В случае ошибки остановки.
-
-    Example:
-        POST /monitoring/monitoring/stop
-    """
-    try:
-        memory_monitor.stop_monitoring()
-
-        return {"status": "success", "message": "Мониторинг памяти остановлен"}
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Ошибка остановки мониторинга: {str(e)}"
-        )
-
-
-@router.get("/config", response_model=Dict[str, Any])
-def get_monitoring_config() -> Dict[str, Any]:
-    """
-    Получить текущую конфигурацию мониторинга.
-
-    Returns:
-        dict: Статус, данные конфигурации, сообщение.
-
-    Example:
-        GET /monitoring/config
-    """
-    settings = get_settings()
+@router.get("/health")
+async def health_check() -> Dict[str, str]:
+    """Простая проверка работоспособности сервиса."""
     return {
-        "status": "success",
-        "data": {
-            "memory_threshold_gb": settings.memory_threshold_gb,
-            "max_workers": settings.max_workers,
-            "min_workers": settings.min_workers,
-            "memory_check_interval": settings.memory_check_interval,
-            "worker_memory_limit_gb": settings.worker_memory_limit_gb,
-            "enable_auto_scaling": settings.enable_auto_scaling,
-            "environment_file": settings.current_env_file,
-        },
-        "message": "Конфигурация мониторинга получена успешно",
+        "status": "healthy",
+        "service": "AudioScribeTranslate Monitoring",
+        "psutil_available": str(PSUTIL_AVAILABLE)
     }

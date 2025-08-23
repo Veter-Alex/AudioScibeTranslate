@@ -89,12 +89,11 @@ class Settings(BaseSettings):
         celery_broker_url (str): URL брокера Celery.
         celery_result_backend (str): URL backend'а Celery.
         whisper_models (str): Список моделей Whisper через запятую.
-        memory_threshold_gb (int): Порог памяти для масштабирования воркеров.
-        max_workers (int): Максимальное количество воркеров.
-        min_workers (int): Минимальное количество воркеров.
-        memory_check_interval (int): Интервал проверки памяти (сек).
+        max_workers (int): Максимальное количество воркеров цепочек.
         worker_memory_limit_gb (int): Лимит памяти на воркер.
-        enable_auto_scaling (bool): Включить автомасштабирование воркеров.
+        min_free_memory_gb (int): Минимум свободной памяти для запуска воркера.
+        enable_processing_chains (bool): Включить обработку цепочками.
+        chain_queue_check_interval (int): Интервал проверки очереди цепочек (сек).
 
     Example:
         settings = Settings()
@@ -112,13 +111,14 @@ class Settings(BaseSettings):
     # Whisper модели
     whisper_models: str = "base,small,medium,large"
 
-    # Настройки динамического масштабирования воркеров
-    memory_threshold_gb: int = 8
+    # Настройки воркеров (для цепочек обработки)
     max_workers: int = 6
-    min_workers: int = 1
-    memory_check_interval: int = 30
     worker_memory_limit_gb: int = 4
-    enable_auto_scaling: bool = True
+    
+    # Настройки цепочек обработки
+    min_free_memory_gb: int = 4  # Минимум свободной памяти для запуска нового воркера
+    enable_processing_chains: bool = True  # Включить обработку цепочками
+    chain_queue_check_interval: int = 10  # Интервал проверки очереди цепочек (сек)
 
     @property
     def whisper_models_list(self) -> list[str]:

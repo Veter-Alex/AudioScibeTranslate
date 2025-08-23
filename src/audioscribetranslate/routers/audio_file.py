@@ -10,7 +10,7 @@ from sqlalchemy.sql import ColumnElement
 
 from audioscribetranslate.core.config import get_settings
 from audioscribetranslate.core.files import get_uploaded_files_dir
-from audioscribetranslate.core.tasks import enqueue_transcription
+from audioscribetranslate.core.tasks import enqueue_audio_chain, enqueue_transcription
 from audioscribetranslate.db.session import get_db
 from audioscribetranslate.models.audio_file import AudioFile
 
@@ -104,10 +104,21 @@ async def upload_audio_file(
     db.add(audio)
     await db.commit()
     await db.refresh(audio)
-    # Помещаем задачу в очередь на транскрибацию (не блокируя ответ)
+    # Помещаем задачу в очередь на обработку (не блокируя ответ)
     from fastapi.concurrency import run_in_threadpool
 
-    enqueue_ok = await run_in_threadpool(enqueue_transcription, int(audio.id))
+    settings = get_settings()
+    
+    # Выбираем тип обработки: цепочки или отдельные задачи
+    if settings.enable_processing_chains:
+        # Используем новую систему цепочек обработки
+        enqueue_ok = await run_in_threadpool(enqueue_audio_chain, int(audio.id), "ru")
+        processing_type = "chain"
+    else:
+        # Используем старую систему отдельных задач
+        enqueue_ok = await run_in_threadpool(enqueue_transcription, int(audio.id))
+        processing_type = "transcription_only"
+        
     if enqueue_ok:
         setattr(audio, "status", "queued")
         await db.commit()
@@ -118,6 +129,7 @@ async def upload_audio_file(
         "relative_path": relative_storage_path,
         "whisper_model": audio.whisper_model,
         "status": audio.status if enqueue_ok else "queue_failed",
+        "processing_type": processing_type if enqueue_ok else None,
     }
 
 

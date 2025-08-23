@@ -89,9 +89,9 @@ def stop_docker() -> bool:
     return True
 
 
-def run_worker_manager() -> None:
-    """Запуск менеджера воркеров с автомасштабированием"""
-    print("🚀 Запуск менеджера воркеров с автомасштабированием...")
+def run_processing_chains() -> None:
+    """Запуск менеджера цепочек обработки"""
+    print("⛓️ Запуск менеджера цепочек обработки...")
 
     # Проверяем настройки
     current_env = os.getenv("ENV", "local")
@@ -106,21 +106,22 @@ def run_worker_manager() -> None:
         # Устанавливаем зависимости если нужно
         subprocess.run([poetry_path, "install"], check=True, capture_output=True)
 
-        # Запускаем менеджер воркеров
+        # Запускаем менеджер цепочек
         subprocess.run(
-            [poetry_path, "run", "python", "src/audioscribetranslate/worker_manager.py"],
+            [poetry_path, "run", "python", "-c", 
+             "from src.audioscribetranslate.core.chain_manager import start_chain_manager; start_chain_manager(); import time; time.sleep(1000)"],
             check=True,
         )
 
     except subprocess.CalledProcessError as e:
-        print(f"❌ Ошибка запуска менеджера воркеров: {e}")
+        print(f"❌ Ошибка запуска менеджера цепочек: {e}")
     except KeyboardInterrupt:
-        print("\n⏹️ Остановка менеджера воркеров...")
+        print("\n⏹️ Остановка менеджера цепочек...")
 
 
-def show_worker_status() -> None:
-    """Показать статус воркеров"""
-    print("📊 Статус воркеров:")
+def show_chains_status() -> None:
+    """Показать статус цепочек обработки"""
+    print("⛓️ Статус цепочек обработки:")
 
     # Определяем путь к Poetry
     poetry_path = os.path.join(os.getenv("APPDATA", ""), "Python", "Scripts", "poetry.exe")
@@ -128,14 +129,39 @@ def show_worker_status() -> None:
         poetry_path = "poetry"  # Fallback на системную команду
 
     try:
-        # Запускаем команду статуса
+        # Запускаем команду статуса цепочек
         result = subprocess.run(
             [
                 poetry_path,
                 "run",
                 "python",
-                "src/audioscribetranslate/worker_manager.py",
-                "--status",
+                "-c",
+                """
+from src.audioscribetranslate.core.chain_manager import get_chain_manager
+from src.audioscribetranslate.core.config import get_settings
+import psutil
+
+manager = get_chain_manager()
+settings = get_settings()
+
+print(f"Доступно памяти: {psutil.virtual_memory().available / (1024**3):.1f} GB")
+print(f"Минимум для запуска: {settings.min_free_memory_gb} GB")
+print(f"Максимум воркеров: {settings.max_workers}")
+print(f"Включены цепочки: {'Да' if settings.enable_processing_chains else 'Нет'}")
+
+# Статус очереди
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import sessionmaker
+from src.audioscribetranslate.models.audio_file import AudioFile
+
+engine = create_engine(settings.sync_database_url)
+SessionLocal = sessionmaker(bind=engine)
+with SessionLocal() as session:
+    queued = session.execute(select(AudioFile).where(AudioFile.status == 'queued')).scalars().all()
+    processing = session.execute(select(AudioFile).where(AudioFile.status == 'processing')).scalars().all()
+    print(f"Файлов в очереди: {len(queued)}")
+    print(f"Файлов в обработке: {len(processing)}")
+                """
             ],
             capture_output=True,
             text=True,
@@ -145,14 +171,14 @@ def show_worker_status() -> None:
         print(result.stdout)
 
     except subprocess.CalledProcessError as e:
-        print(f"❌ Ошибка получения статуса: {e}")
+        print(f"❌ Ошибка получения статуса цепочек: {e}")
         if e.stderr:
             print(f"   Детали: {e.stderr}")
 
 
-def stop_workers() -> None:
-    """Остановить воркеры"""
-    print("⏹️ Остановка воркеров...")
+def stop_chains() -> None:
+    """Остановить цепочки обработки"""
+    print("⏹️ Остановка цепочек обработки...")
 
     # Определяем путь к Poetry
     poetry_path = os.path.join(os.getenv("APPDATA", ""), "Python", "Scripts", "poetry.exe")
@@ -165,8 +191,8 @@ def stop_workers() -> None:
                 poetry_path,
                 "run",
                 "python",
-                "src/audioscribetranslate/worker_manager.py",
-                "--stop",
+                "-c",
+                "from src.audioscribetranslate.core.chain_manager import stop_chain_manager; stop_chain_manager(); print('Цепочки остановлены')",
             ],
             capture_output=True,
             text=True,
@@ -174,10 +200,10 @@ def stop_workers() -> None:
         )
 
         print(result.stdout)
-        print("✅ Воркеры остановлены")
+        print("✅ Цепочки обработки остановлены")
 
     except subprocess.CalledProcessError as e:
-        print(f"❌ Ошибка остановки воркеров: {e}")
+        print(f"❌ Ошибка остановки цепочек: {e}")
         if e.stderr:
             print(f"   Детали: {e.stderr}")
 
@@ -228,12 +254,10 @@ def main() -> None:
         print("  python manage.py docker    - Запуск всех сервисов через Docker")
         print("  python manage.py stop      - Остановка Docker сервисов")
         print("  python manage.py status    - Показать статус")
-        print("\nУправление воркерами:")
-        print(
-            "  python manage.py workers   - Запуск менеджера воркеров с автомасштабированием"
-        )
-        print("  python manage.py worker-status - Показать статус воркеров")
-        print("  python manage.py stop-workers  - Остановить воркеры")
+        print("\nУправление цепочками обработки:")
+        print("  python manage.py chains        - Запуск менеджера цепочек обработки")
+        print("  python manage.py chains-status - Показать статус цепочек")
+        print("  python manage.py stop-chains   - Остановить цепочки")
         print("\nОкружения:")
         print("  local      - Разработка без Docker (.env.local)")
         print("  docker     - Разработка с Docker (.env)")
@@ -255,16 +279,16 @@ def main() -> None:
         stop_docker()
     elif command == "status":
         show_status()
-    elif command == "workers":
-        run_worker_manager()
-    elif command == "worker-status":
-        show_worker_status()
-    elif command == "stop-workers":
-        stop_workers()
+    elif command == "chains":
+        run_processing_chains()
+    elif command == "chains-status":
+        show_chains_status()
+    elif command == "stop-chains":
+        stop_chains()
     else:
         print(f"❌ Неизвестная команда: {command}")
         print(
-            "Используйте: local, services, docker, stop, status, workers, worker-status, stop-workers"
+            "Используйте: local, services, docker, stop, status, chains, chains-status, stop-chains"
         )
 
 
