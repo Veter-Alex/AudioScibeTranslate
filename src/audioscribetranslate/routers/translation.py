@@ -23,6 +23,29 @@ async def list_translations(
     limit: int = 20,
     offset: int = 0,
 ) -> dict[str, Any]:
+    """
+    Получить список переводов с фильтрами и пагинацией.
+
+    Args:
+        db (AsyncSession): Сессия базы данных.
+        transcript_id (Optional[int]): Фильтр по транскрипту.
+        status (Optional[str]): Фильтр по статусу.
+        target_language (Optional[str]): Фильтр по целевому языку.
+        order_by (str): Поле сортировки.
+        order_dir (str): Направление сортировки.
+        limit (int): Лимит.
+        offset (int): Смещение.
+
+    Returns:
+        dict: {items, total, limit, offset}
+
+    Example:
+        GET /translations?transcript_id=1&limit=10
+
+    Pitfalls:
+        - Лимит не может превышать 100.
+        - Сортировка только по разрешённым полям.
+    """
     limit = min(max(limit, 1), 100)
     offset = max(offset, 0)
 
@@ -78,6 +101,19 @@ async def list_translations(
 async def get_translation(
     translation_id: int, db: AsyncSession = Depends(get_db)
 ) -> dict[str, Any]:
+    """
+    Получить информацию о переводе по ID.
+
+    Args:
+        translation_id (int): ID перевода.
+        db (AsyncSession): Сессия базы данных.
+
+    Returns:
+        dict: Информация о переводе.
+
+    Raises:
+        HTTPException: Если перевод не найден.
+    """
     res = await db.execute(select(Translation).where(Translation.id == translation_id))
     obj = res.scalar_one_or_none()
     if not obj:
@@ -96,13 +132,36 @@ async def get_translation(
 
 
 class TranslationCreateRequest(BaseModel):
+    """
+    Модель запроса на создание перевода.
+
+    Attributes:
+        transcript_id (int): ID транскрипта.
+        target_language (str): Целевой язык.
+        model_name (Optional[str]): Название модели.
+    """
     transcript_id: int = Field(..., ge=1)
     target_language: str = Field(..., min_length=1, max_length=16)
-    model_name: str | None = Field(None, max_length=100)
+    model_name: Optional[str] = Field(None, max_length=100)
 
 
 @router.post("/", response_model=dict, status_code=201)
 async def create_translation(payload: TranslationCreateRequest) -> dict[str, Any]:
+    """
+    Поставить задачу на создание перевода.
+
+    Args:
+        payload (TranslationCreateRequest): Данные для создания перевода.
+
+    Returns:
+        dict: ID созданного перевода и статус постановки в очередь.
+
+    Raises:
+        HTTPException: Если транскрипт не готов или внутренняя ошибка.
+
+    Example:
+        POST /translations
+    """
     ok, translation_id = enqueue_translation(
         payload.transcript_id, payload.target_language, payload.model_name
     )

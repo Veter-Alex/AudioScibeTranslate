@@ -1,11 +1,12 @@
 import os
 from enum import Enum
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy import asc, desc, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy.sql import ColumnElement
 
 from audioscribetranslate.core.config import get_settings
 from audioscribetranslate.core.files import get_uploaded_files_dir
@@ -36,9 +37,25 @@ async def upload_audio_file(
     ),
     user_id: int = Form(..., description="ID пользователя, загрузившего файл"),
     db: AsyncSession = Depends(get_db),
-) -> dict[str, Any]:
+) -> Dict[str, Any]:
     """
     Загружает аудиофайл, валидирует выбранную модель Whisper и сохраняет запись в БД.
+
+    Args:
+        file (UploadFile): Загружаемый аудиофайл.
+        whisper_model (WhisperModelEnum): Модель Whisper для транскрибации.
+        user_id (int): ID пользователя.
+        db (AsyncSession): Сессия базы данных.
+
+    Returns:
+        dict: Информация о загруженном файле.
+
+    Example:
+        POST /audio_files с multipart/form-data
+
+    Pitfalls:
+        - Проверяйте доступность модели Whisper.
+        - Файл сохраняется на диск, убедитесь в наличии прав.
     """
     settings = get_settings()
     allowed_models = settings.whisper_models_list
@@ -116,9 +133,29 @@ async def list_audio_files(
     limit: int = 20,
     offset: int = 0,
 ) -> dict[str, Any]:
-    """Список аудиофайлов с фильтрами и пагинацией.
+    """
+    Получает список аудиофайлов с фильтрами и пагинацией.
 
-    Возвращает объект: {items, total, limit, offset}
+    Args:
+        db (AsyncSession): Сессия базы данных.
+        user_id (Optional[int]): Фильтр по пользователю.
+        status (Optional[str]): Фильтр по статусу.
+        whisper_model (Optional[str]): Фильтр по модели.
+        q (Optional[str]): Поиск по имени файла.
+        order_by (str): Поле сортировки.
+        order_dir (str): Направление сортировки.
+        limit (int): Лимит.
+        offset (int): Смещение.
+
+    Returns:
+        dict: {items, total, limit, offset}
+
+    Example:
+        GET /audio_files?user_id=1&limit=10
+
+    Pitfalls:
+        - Лимит не может превышать 100.
+        - Сортировка только по разрешённым полям.
     """
     limit = min(max(limit, 1), 100)
     offset = max(offset, 0)
@@ -141,14 +178,17 @@ async def list_audio_files(
             stmt = stmt.where(c)
             count_stmt = count_stmt.where(c)
 
-    order_map = {
+    order_map: Dict[str, ColumnElement[Any]] = {
         "id": AudioFile.id,
         "upload_time": AudioFile.upload_time,
         "size": AudioFile.size,
         "whisper_model": AudioFile.whisper_model,
         "status": AudioFile.status,
     }
-    order_col = order_map.get(order_by, AudioFile.upload_time)
+    if order_by not in order_map:
+        order_col: ColumnElement[Any] = AudioFile.upload_time  # fallback to a valid column
+    else:
+        order_col = order_map[order_by]
     direction = desc if order_dir.lower() == "desc" else asc
     stmt = stmt.order_by(direction(order_col))
 
@@ -174,6 +214,19 @@ async def list_audio_files(
 async def get_audio_file(
     audio_file_id: int, db: AsyncSession = Depends(get_db)
 ) -> dict[str, Any]:
+    """
+    Получает информацию об аудиофайле по ID.
+
+    Args:
+        audio_file_id (int): ID аудиофайла.
+        db (AsyncSession): Сессия базы данных.
+
+    Returns:
+        dict: Информация о файле.
+
+    Raises:
+        HTTPException: Если файл не найден.
+    """
     result = await db.execute(select(AudioFile).where(AudioFile.id == audio_file_id))
     audio_file = result.scalar_one_or_none()
     if not audio_file:
@@ -191,6 +244,19 @@ async def delete_audio_file(
 ) -> dict[str, Any]:
     """
     Удаляет аудиофайл по id: удаляет запись из БД и сам файл с диска (если найден).
+
+    Args:
+        audio_file_id (int): ID аудиофайла.
+        db (AsyncSession): Сессия базы данных.
+
+    Returns:
+        dict: Результат удаления.
+
+    Raises:
+        HTTPException: Если файл не найден.
+
+    Pitfalls:
+        - Файл на диске может отсутствовать, тогда удаляется только запись.
     """
     audio = await db.get(AudioFile, audio_file_id)
     if not audio:

@@ -1,3 +1,19 @@
+"""
+Главная точка входа FastAPI-приложения AudioScribeTranslate.
+
+Инициализирует все роутеры, настраивает жизненный цикл приложения,
+создаёт структуру папок для загруженных файлов и администратора.
+
+Архитектурные принципы:
+- Чистый startup/shutdown через lifespan
+- Автоматическая инициализация моделей и пользователей
+- Включение всех API роутеров
+
+Pitfalls:
+- Переменные окружения должны быть корректно заданы для production
+- Структура папок создаётся при каждом запуске
+"""
+
 import asyncio
 import os
 from collections.abc import AsyncGenerator
@@ -23,10 +39,29 @@ from audioscribetranslate.routers import (
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
+    """
+    Жизненный цикл приложения: startup/shutdown.
+
+    На старте:
+        - Создаёт администратора, если не существует
+        - Создаёт структуру папок uploaded_files/{model}/{user}
+    На завершении: (можно добавить логику shutdown)
+
+    Args:
+        _app (FastAPI): Экземпляр приложения
+
+    Yields:
+        None
+
+    Pitfalls:
+        - Ошибки при создании структуры файлов не логируются
+        - Администратор создаётся с дефолтным паролем, если не задано
+    """
     # --- startup ---
     admin_name = os.getenv("ADMIN_NAME", "admin")
     admin_password = os.getenv("ADMIN_PASSWORD", "admin")
-    await create_admin_if_not_exists(admin_name, admin_password)
+    async with AsyncSessionLocal() as session:
+        await create_admin_if_not_exists(admin_name, admin_password, session)
 
     # --- create uploaded_files/{model}/{user} structure ---
     models = os.getenv("WHISPER_MODELS", "base,small,medium,large").split(",")
@@ -38,6 +73,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
 
     yield
     # --- shutdown ---
+    # Здесь можно добавить логику очистки ресурсов
 
 
 app = FastAPI(title="AudioScribeTranslate API", lifespan=lifespan)
@@ -45,9 +81,19 @@ app = FastAPI(title="AudioScribeTranslate API", lifespan=lifespan)
 
 @app.get("/", response_model=dict)
 def read_root() -> dict[str, str]:
+    """
+    Корневой эндпоинт для проверки работоспособности API.
+
+    Returns:
+        dict: Сообщение о статусе сервера
+
+    Example:
+        GET /
+    """
     return {"message": "AudioScribeTranslate backend is running!"}
 
 
+# Включаем все роутеры API
 app.include_router(example.router)
 app.include_router(user.router)
 app.include_router(audio_file.router)

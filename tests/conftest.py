@@ -1,46 +1,79 @@
-"""Per-test isolated async database session to avoid event loop & concurrency issues."""
+"""
+Фикстуры для изолированного асинхронного тестирования с отдельной базой данных.
+
+Обеспечивают:
+- Чистую базу для каждого теста
+- Автоматическую миграцию Alembic
+- Переопределение зависимостей FastAPI
+
+Pitfalls:
+- Alembic должен быть корректно настроен
+- TRUNCATE очищает все таблицы, не используйте в production
+"""
 
 import asyncio
 import os
 from collections.abc import AsyncGenerator
+from typing import Generator
 
 import pytest
 import pytest_asyncio
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from audioscribetranslate.core.config import get_settings
 from audioscribetranslate.db.session import get_db
 from audioscribetranslate.main import app
 
-# Ensure selector loop on Windows (asyncpg requirement for reliability)
+# Для Windows: гарантируем корректную работу event loop с asyncpg
 if hasattr(asyncio, "WindowsSelectorEventLoopPolicy"):
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 
 @pytest.fixture(scope="session")
-def event_loop():  # type: ignore
+def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
+    """
+    Создаёт отдельный event loop для асинхронных тестов.
+
+    Returns:
+        event_loop: Новый экземпляр event loop
+    """
     loop = asyncio.new_event_loop()
     yield loop
     loop.close()
+    return None
 
 
 @pytest_asyncio.fixture
-async def test_engine():
+async def test_engine() -> AsyncGenerator[object, None]:
+    """
+    Создаёт асинхронный движок SQLAlchemy для тестовой базы.
+    Применяет миграции Alembic и очищает все таблицы.
+
+    Yields:
+        AsyncEngine: Асинхронный движок для тестов
+
+    Pitfalls:
+        - Alembic должен быть настроен на тестовую БД
+        - TRUNCATE удаляет все данные
+    """
     settings = get_settings()
     engine = create_async_engine(settings.database_url, future=True)
-    # Apply migrations to head (once per engine creation) using Alembic programmatic API
-    # We assume alembic.ini is at project root.
+    # Применяем миграции Alembic к тестовой БД
     alembic_cfg = Config(
         os.path.join(os.path.dirname(os.path.dirname(__file__)), "alembic.ini")
     )
-    # Override SQLAlchemy URL to the test database URL (async -> sync needed for alembic so strip +asyncpg)
     sync_url = settings.sync_database_url
     alembic_cfg.set_main_option("sqlalchemy.url", sync_url)
     command.upgrade(alembic_cfg, "head")
-    # Pre-clean to guarantee empty state for this test's engine
+    # Очищаем все таблицы
     async with engine.begin() as conn:
         await conn.execute(
             text(
@@ -54,14 +87,26 @@ async def test_engine():
 
 
 @pytest_asyncio.fixture
-async def db_session(test_engine) -> AsyncGenerator[AsyncSession, None]:
+async def db_session(test_engine: AsyncEngine) -> AsyncGenerator[AsyncSession, None]:
+    """
+    Создаёт асинхронную сессию БД для каждого теста.
+
+    Yields:
+        AsyncSession: Сессия для работы с тестовой БД
+    """
     maker = async_sessionmaker(bind=test_engine, expire_on_commit=False)
     async with maker() as session:
         yield session
 
 
 @pytest.fixture(autouse=True)
-def override_get_db(db_session: AsyncSession):
+def override_get_db(db_session: AsyncSession) -> None:
+    """
+    Переопределяет зависимость get_db в FastAPI для использования тестовой сессии.
+
+    Args:
+        db_session (AsyncSession): Сессия тестовой БД
+    """
     async def _override() -> AsyncGenerator[AsyncSession, None]:
         yield db_session
 

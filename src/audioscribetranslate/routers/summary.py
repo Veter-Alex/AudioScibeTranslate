@@ -23,6 +23,29 @@ async def list_summaries(
     limit: int = 20,
     offset: int = 0,
 ) -> dict[str, Any]:
+    """
+    Получить список summary с фильтрами и пагинацией.
+
+    Args:
+        db (AsyncSession): Сессия базы данных.
+        translation_id (Optional[int]): Фильтр по переводу.
+        status (Optional[str]): Фильтр по статусу.
+        target_language (Optional[str]): Фильтр по целевому языку.
+        order_by (str): Поле сортировки.
+        order_dir (str): Направление сортировки.
+        limit (int): Лимит.
+        offset (int): Смещение.
+
+    Returns:
+        dict: {items, total, limit, offset}
+
+    Example:
+        GET /summaries?translation_id=1&limit=10
+
+    Pitfalls:
+        - Лимит не может превышать 100.
+        - Сортировка только по разрешённым полям.
+    """
     limit = min(max(limit, 1), 100)
     offset = max(offset, 0)
 
@@ -78,6 +101,19 @@ async def list_summaries(
 async def get_summary(
     summary_id: int, db: AsyncSession = Depends(get_db)
 ) -> dict[str, Any]:
+    """
+    Получить информацию о summary по ID.
+
+    Args:
+        summary_id (int): ID summary.
+        db (AsyncSession): Сессия базы данных.
+
+    Returns:
+        dict: Информация о summary.
+
+    Raises:
+        HTTPException: Если summary не найден.
+    """
     res = await db.execute(select(Summary).where(Summary.id == summary_id))
     obj = res.scalar_one_or_none()
     if not obj:
@@ -96,13 +132,36 @@ async def get_summary(
 
 
 class SummaryCreateRequest(BaseModel):
+    """
+    Модель запроса на создание summary.
+
+    Attributes:
+        translation_id (int): ID перевода.
+        target_language (str): Целевой язык.
+        model_name (Optional[str]): Название модели.
+    """
     translation_id: int = Field(..., ge=1)
     target_language: str = Field(..., min_length=1, max_length=16)
-    model_name: str | None = Field(None, max_length=100)
+    model_name: Optional[str] = Field(None, max_length=100)
 
 
 @router.post("/", response_model=dict, status_code=201)
 async def create_summary(payload: SummaryCreateRequest) -> dict[str, Any]:
+    """
+    Поставить задачу на создание summary.
+
+    Args:
+        payload (SummaryCreateRequest): Данные для создания summary.
+
+    Returns:
+        dict: ID созданной summary и статус постановки в очередь.
+
+    Raises:
+        HTTPException: Если перевод не готов или внутренняя ошибка.
+
+    Example:
+        POST /summaries
+    """
     ok, summary_id = enqueue_summary(
         payload.translation_id, payload.target_language, payload.model_name
     )

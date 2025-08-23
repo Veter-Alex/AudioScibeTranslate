@@ -1,7 +1,23 @@
 #!/usr/bin/env python3
 """
-Менеджер воркеров с динамическим масштабированием
+Менеджер воркеров с динамическим масштабированием для AudioScribeTranslate.
+
 Использует MemoryMonitor для автоматического управления количеством Celery воркеров
+на основе доступной памяти и конфигурации. Позволяет запускать мониторинг,
+останавливать его, а также получать подробную статистику о состоянии системы.
+
+Архитектурные принципы:
+- Автоматическое масштабирование воркеров
+- Поддержка ручного управления через аргументы командной строки
+- Подробное логирование и мониторинг
+
+Example:
+    python worker_manager.py --status
+    python worker_manager.py --stop
+
+Pitfalls:
+- Требует корректной настройки окружения и переменных
+- Не обрабатывает ошибки подключения к Celery
 """
 
 import argparse
@@ -17,8 +33,13 @@ from audioscribetranslate.core.config import get_settings
 from audioscribetranslate.core.memory_monitor import memory_monitor
 
 
-def setup_logging(level: str = "INFO"):
-    """Настройка логирования"""
+def setup_logging(level: str = "INFO") -> None:
+    """
+    Настройка логирования.
+
+    Args:
+        level (str): Уровень логирования (DEBUG, INFO, WARNING, ERROR)
+    """
     logging.basicConfig(
         level=getattr(logging, level.upper()),
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -26,8 +47,18 @@ def setup_logging(level: str = "INFO"):
     )
 
 
-def main():
-    """Основная функция менеджера воркеров"""
+def main() -> None:
+    """
+    Основная функция менеджера воркеров.
+
+    Обрабатывает аргументы командной строки для управления мониторингом и
+    получения статуса. Запускает MemoryMonitor и выводит статистику каждые 5 минут.
+
+    Args:
+        --log-level: Уровень логирования
+        --status: Показать текущий статус
+        --stop: Остановить мониторинг
+    """
     parser = argparse.ArgumentParser(
         description="Менеджер Celery воркеров с автомасштабированием"
     )
@@ -90,7 +121,8 @@ def main():
 
     # Запуск основного режима
     logger.info("=== Менеджер Celery воркеров с автомасштабированием ===")
-    logger.info(f"Целевое окружение: {settings.environment}")
+    # logger.info(f"Целевое окружение: {settings.environment}")
+    logger.info(f"Текущий env файл: {getattr(settings, 'current_env_file', 'unknown')}")
     logger.info(
         f"Автомасштабирование: {'включено' if settings.enable_auto_scaling else 'отключено'}"
     )
@@ -108,7 +140,7 @@ def main():
         logger.info("Менеджер воркеров запущен. Нажмите Ctrl+C для остановки")
 
         # Основной цикл - показываем статистику каждые 5 минут
-        last_status_time = 0
+        last_status_time: float = 0.0
 
         while True:
             current_time = time.time()

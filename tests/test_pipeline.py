@@ -20,7 +20,19 @@ from audioscribetranslate.models.user import User
 
 
 @pytest.mark.asyncio
-async def test_full_pipeline_manual(db_session: AsyncSession):
+async def test_full_pipeline_manual(db_session: AsyncSession) -> None:
+    """
+    Проверяет полный ручной pipeline: upload -> transcription -> translation -> summary.
+
+    Steps:
+        - Создаёт пользователя
+        - Загружает аудиофайл
+        - Запускает транскрипцию
+        - Проверяет создание транскрипта
+        - Ставит задачу на перевод и выполняет перевод
+        - Ставит задачу на summary и выполняет summary
+        - Проверяет, что перевод и summary завершены успешно
+    """
     # Create user
     user = User(name=f"tester_{uuid.uuid4().hex[:8]}", hashed_password="x")
     db_session.add(user)
@@ -73,6 +85,4 @@ async def test_full_pipeline_manual(db_session: AsyncSession):
     tr = await db_session.get(Translation, translation_id)
     sm = await db_session.get(Summary, summary_id)
     assert tr and tr.text and tr.status == "done"
-    assert sm and sm.text and sm.status == "done"
-    assert sm and sm.text and sm.status == "done"
     assert sm and sm.text and sm.status == "done"

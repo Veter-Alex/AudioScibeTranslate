@@ -15,15 +15,21 @@ router = APIRouter(prefix="/monitoring", tags=["monitoring"])
 
 
 @router.get("/status", response_model=Dict[str, Any])
-def get_system_status():
+def get_system_status() -> Dict[str, Any]:
     """
-    Получить статус системы мониторинга и воркеров
+    Получить статус системы мониторинга и воркеров.
 
-    Возвращает информацию о:
-    - Использовании памяти
-    - Количестве активных воркеров
-    - Конфигурации автомасштабирования
-    - Активных процессах
+    Returns:
+        dict: Статус системы, данные мониторинга, сообщение.
+
+    Raises:
+        HTTPException: В случае ошибки получения статуса.
+
+    Example:
+        GET /monitoring/status
+
+    Pitfalls:
+        - Ошибки при получении статуса воркеров или памяти.
     """
     try:
         status = memory_monitor.get_status()
@@ -39,9 +45,18 @@ def get_system_status():
 
 
 @router.get("/memory", response_model=Dict[str, Any])
-def get_memory_info():
+def get_memory_info() -> Dict[str, Any]:
     """
-    Получить детальную информацию о памяти
+    Получить детальную информацию о памяти.
+
+    Returns:
+        dict: Статус, данные о памяти, сообщение.
+
+    Raises:
+        HTTPException: В случае ошибки получения информации.
+
+    Example:
+        GET /monitoring/memory
     """
     try:
         memory_info = memory_monitor.get_memory_info()
@@ -67,9 +82,18 @@ def get_memory_info():
 
 
 @router.get("/workers", response_model=Dict[str, Any])
-def get_workers_info():
+def get_workers_info() -> Dict[str, Any]:
     """
-    Получить информацию о Celery воркерах
+    Получить информацию о Celery воркерах.
+
+    Returns:
+        dict: Статус, данные о воркерах, сообщение.
+
+    Raises:
+        HTTPException: В случае ошибки получения информации.
+
+    Example:
+        GET /monitoring/workers
     """
     try:
         workers = memory_monitor.get_celery_workers()
@@ -104,12 +128,21 @@ def get_workers_info():
 
 
 @router.post("/workers/scale", response_model=Dict[str, Any])
-def scale_workers(target_workers: int):
+def scale_workers(target_workers: int) -> Dict[str, Any]:
     """
-    Ручное масштабирование количества воркеров
+    Ручное масштабирование количества воркеров.
 
     Args:
-        target_workers: Целевое количество воркеров
+        target_workers (int): Целевое количество воркеров.
+
+    Returns:
+        dict: Статус, информация о масштабировании, сообщение.
+
+    Raises:
+        HTTPException: Если количество вне допустимого диапазона или ошибка масштабирования.
+
+    Example:
+        POST /monitoring/workers/scale
     """
     if not (memory_monitor.min_workers <= target_workers <= memory_monitor.max_workers):
         raise HTTPException(
@@ -137,9 +170,18 @@ def scale_workers(target_workers: int):
 
 
 @router.post("/monitoring/start", response_model=Dict[str, Any])
-def start_monitoring():
+def start_monitoring() -> Dict[str, Any]:
     """
-    Запустить мониторинг памяти и автомасштабирование
+    Запустить мониторинг памяти и автомасштабирование.
+
+    Returns:
+        dict: Статус и сообщение о запуске мониторинга.
+
+    Raises:
+        HTTPException: В случае ошибки запуска.
+
+    Example:
+        POST /monitoring/monitoring/start
     """
     try:
         if (
@@ -158,9 +200,18 @@ def start_monitoring():
 
 
 @router.post("/monitoring/stop", response_model=Dict[str, Any])
-def stop_monitoring():
+def stop_monitoring() -> Dict[str, Any]:
     """
-    Остановить мониторинг памяти и автомасштабирование
+    Остановить мониторинг памяти и автомасштабирование.
+
+    Returns:
+        dict: Статус и сообщение об остановке мониторинга.
+
+    Raises:
+        HTTPException: В случае ошибки остановки.
+
+    Example:
+        POST /monitoring/monitoring/stop
     """
     try:
         memory_monitor.stop_monitoring()
@@ -173,12 +224,17 @@ def stop_monitoring():
 
 
 @router.get("/config", response_model=Dict[str, Any])
-def get_monitoring_config():
+def get_monitoring_config() -> Dict[str, Any]:
     """
-    Получить текущую конфигурацию мониторинга
+    Получить текущую конфигурацию мониторинга.
+
+    Returns:
+        dict: Статус, данные конфигурации, сообщение.
+
+    Example:
+        GET /monitoring/config
     """
     settings = get_settings()
-
     return {
         "status": "success",
         "data": {
@@ -188,7 +244,7 @@ def get_monitoring_config():
             "memory_check_interval": settings.memory_check_interval,
             "worker_memory_limit_gb": settings.worker_memory_limit_gb,
             "enable_auto_scaling": settings.enable_auto_scaling,
-            "environment": settings.environment,
+            "environment_file": settings.current_env_file,
         },
         "message": "Конфигурация мониторинга получена успешно",
     }

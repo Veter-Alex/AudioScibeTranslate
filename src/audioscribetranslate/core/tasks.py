@@ -2,8 +2,26 @@ import logging
 import os
 import time
 import traceback
+from typing import Any, Optional, Tuple, Union
+
+"""
+Модуль задач Celery для аудиотранскрибации, перевода и суммаризации.
+
+Содержит задачи:
+    - transcribe_audio: транскрибация аудиофайла
+    - translate_transcript: перевод транскрипта
+    - summarize_translation: суммаризация перевода
+
+Также содержит функции безопасной постановки задач в очередь.
+
+Example:
+    >>> enqueue_transcription(audio_id=1)
+    >>> enqueue_translation(transcript_id=2, target_language='en')
+    >>> enqueue_summary(translation_id=3, target_language='ru')
+"""
 
 from celery import Celery
+from celery.signals import worker_ready, worker_shutdown
 from sqlalchemy import create_engine, select, update
 from sqlalchemy.orm import sessionmaker
 
@@ -63,18 +81,17 @@ celery_app.conf.update(
 import psutil
 
 # Сигналы для интеграции с мониторингом памяти
-from celery.signals import worker_ready, worker_shutdown
 
 
-@worker_ready.connect
-def worker_ready_handler(sender=None, **kwargs):
+@worker_ready.connect  # type: ignore[misc]
+def worker_ready_handler(sender: Optional[object] = None, **kwargs: Any) -> None:
     """Сигнал готовности воркера"""
     logger.info(f"Celery воркер готов: {sender}")
     logger.info(f"Использование памяти: {psutil.virtual_memory().percent:.1f}%")
 
 
-@worker_shutdown.connect
-def worker_shutdown_handler(sender=None, **kwargs):
+@worker_shutdown.connect  # type: ignore[misc]
+def worker_shutdown_handler(sender: Optional[object] = None, **kwargs: Any) -> None:
     """Сигнал завершения воркера"""
     logger.info(f"Celery воркер завершается: {sender}")
 
@@ -88,11 +105,26 @@ except Exception as e:  # noqa: BLE001
 
 @celery_app.task  # type: ignore
 def transcribe_audio(audio_id: int) -> None:
-    """Реальная транскрибация через faster-whisper:
-    - Пропуск если уже есть transcript (idempotent)
-    - Использует whisper_model из AudioFile
-    - Определяет язык и сохраняет
-    - По успеху автоматически ставит очередь перевода (target=en, если нет другой логики)
+    """
+    Транскрибация аудиофайла через faster-whisper.
+
+    Args:
+        audio_id (int): ID аудиофайла для транскрибации.
+
+    Returns:
+        None
+
+    Raises:
+        None. Все ошибки логируются и обрабатываются внутри.
+
+    Example:
+        >>> transcribe_audio.delay(123)
+
+    Idempotency:
+        Если уже есть transcript для аудиофайла, задача пропускается.
+
+    Pitfalls:
+        Ошибки транскрибации не пробрасываются, а логируются и помечают статус 'failed'.
     """
     engine = create_engine(settings.sync_database_url, future=True)
     SessionLocal = sessionmaker(bind=engine, expire_on_commit=False, future=True)
@@ -227,8 +259,20 @@ def transcribe_audio(audio_id: int) -> None:
 
 
 def enqueue_transcription(audio_id: int) -> bool:
-    """Безопасно ставит задачу в очередь. Возвращает True при успехе, False при ошибке.
-    Ошибку не пробрасывает, чтобы не блокировать HTTP-ответ.
+    """
+    Безопасно ставит задачу транскрибации в очередь.
+
+    Args:
+        audio_id (int): ID аудиофайла.
+
+    Returns:
+        bool: True при успехе, False при ошибке.
+
+    Example:
+        >>> enqueue_transcription(123)
+
+    Warning:
+        Ошибки не пробрасываются, чтобы не блокировать HTTP-ответ.
     """
     try:
         transcribe_audio.delay(audio_id)
@@ -245,7 +289,21 @@ def enqueue_transcription(audio_id: int) -> bool:
 
 @celery_app.task  # type: ignore
 def translate_transcript(translation_id: int) -> None:
-    """Перевод транскрипта в целевой язык."""
+    """
+    Перевод транскрипта в целевой язык.
+
+    Args:
+        translation_id (int): ID объекта Translation.
+
+    Returns:
+        None
+
+    Example:
+        >>> translate_transcript.delay(456)
+
+    Pitfalls:
+        Ошибки перевода не пробрасываются, а логируются и помечают статус 'failed'.
+    """
     engine = create_engine(settings.sync_database_url, future=True)
     SessionLocal = sessionmaker(bind=engine, expire_on_commit=False, future=True)
     with SessionLocal() as session:
@@ -308,9 +366,25 @@ def translate_transcript(translation_id: int) -> None:
 
 
 def enqueue_translation(
-    transcript_id: int, target_language: str, model_name: str | None = None
-) -> tuple[bool, int | None]:
-    """Создаёт запись Translation со статусом queued и ставит задачу."""
+    transcript_id: int, target_language: str, model_name: Optional[str] = None
+) -> Tuple[bool, Optional[int]]:
+    """
+    Создаёт запись Translation со статусом queued и ставит задачу перевода.
+
+    Args:
+        transcript_id (int): ID транскрипта.
+        target_language (str): Целевой язык перевода.
+        model_name (Optional[str]): Название модели перевода.
+
+    Returns:
+        Tuple[bool, Optional[int]]: (успех, id созданной Translation или None)
+
+    Example:
+        >>> enqueue_translation(2, 'en')
+
+    Pitfalls:
+        Если транскрипт не готов, задача не ставится.
+    """
     engine = create_engine(settings.sync_database_url, future=True)
     SessionLocal = sessionmaker(bind=engine, expire_on_commit=False, future=True)
     with SessionLocal() as session:
@@ -350,6 +424,21 @@ def enqueue_translation(
 
 @celery_app.task  # type: ignore
 def summarize_translation(summary_id: int) -> None:
+    """
+    Суммаризация перевода (Summary).
+
+    Args:
+        summary_id (int): ID объекта Summary.
+
+    Returns:
+        None
+
+    Example:
+        >>> summarize_translation.delay(789)
+
+    Pitfalls:
+        Ошибки суммаризации не пробрасываются, а логируются и помечают статус 'failed'.
+    """
     engine = create_engine(settings.sync_database_url, future=True)
     SessionLocal = sessionmaker(bind=engine, expire_on_commit=False, future=True)
     with SessionLocal() as session:
@@ -399,8 +488,25 @@ def summarize_translation(summary_id: int) -> None:
 
 
 def enqueue_summary(
-    translation_id: int, target_language: str, model_name: str | None = None
-) -> tuple[bool, int | None]:
+    translation_id: int, target_language: str, model_name: Optional[str] = None
+) -> Tuple[bool, Optional[int]]:
+    """
+    Создаёт запись Summary со статусом queued и ставит задачу суммаризации.
+
+    Args:
+        translation_id (int): ID объекта Translation.
+        target_language (str): Целевой язык суммаризации.
+        model_name (Optional[str]): Название модели суммаризации.
+
+    Returns:
+        Tuple[bool, Optional[int]]: (успех, id созданной Summary или None)
+
+    Example:
+        >>> enqueue_summary(3, 'ru')
+
+    Pitfalls:
+        Если перевод не готов, задача не ставится.
+    """
     engine = create_engine(settings.sync_database_url, future=True)
     SessionLocal = sessionmaker(bind=engine, expire_on_commit=False, future=True)
     with SessionLocal() as session:

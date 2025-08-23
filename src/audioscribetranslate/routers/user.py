@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import asc, desc, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy.sql import ColumnElement
 
 from audioscribetranslate.core.files import get_uploaded_files_dir
 from audioscribetranslate.db.session import get_db
@@ -22,6 +23,25 @@ async def create_user(
     is_admin: int = 0,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
+    """
+    Создать нового пользователя.
+
+    Args:
+        name (str): Имя пользователя.
+        hashed_password (str): Хэш пароля.
+        is_active (int): Активен ли пользователь.
+        is_admin (int): Является ли администратором.
+        db (AsyncSession): Сессия базы данных.
+
+    Returns:
+        dict: Информация о созданном пользователе.
+
+    Raises:
+        HTTPException: Если пользователь уже существует.
+
+    Example:
+        POST /users
+    """
     existing = await db.execute(select(User).where(User.name == name))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="User already exists")
@@ -53,7 +73,29 @@ async def list_users(
     limit: int = 20,
     offset: int = 0,
 ) -> dict[str, Any]:
-    """Список пользователей с фильтрами и пагинацией."""
+    """
+    Получить список пользователей с фильтрами и пагинацией.
+
+    Args:
+        db (AsyncSession): Сессия базы данных.
+        is_active (Optional[int]): Фильтр по активности.
+        is_admin (Optional[int]): Фильтр по администратору.
+        name_like (Optional[str]): Поиск по имени.
+        order_by (str): Поле сортировки.
+        order_dir (str): Направление сортировки.
+        limit (int): Лимит.
+        offset (int): Смещение.
+
+    Returns:
+        dict: {items, total, limit, offset}
+
+    Example:
+        GET /users?is_active=1&limit=10
+
+    Pitfalls:
+        - Лимит не может превышать 100.
+        - Сортировка только по разрешённым полям.
+    """
     limit = min(max(limit, 1), 100)
     offset = max(offset, 0)
 
@@ -72,8 +114,8 @@ async def list_users(
             stmt = stmt.where(c)
             count_stmt = count_stmt.where(c)
 
-    order_map = {"id": User.id, "name": User.name}
-    order_col = order_map.get(order_by, User.id)
+    order_map: Dict[str, ColumnElement[Any]] = {"id": User.id, "name": User.name}
+    order_col: ColumnElement[Any] = order_map.get(order_by, User.id)
     direction = desc if order_dir.lower() == "desc" else asc
     stmt = stmt.order_by(direction(order_col))
 
@@ -94,6 +136,19 @@ async def list_users(
 
 @router.get("/{user_id}", response_model=dict)
 async def get_user(user_id: int, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    """
+    Получить информацию о пользователе по ID.
+
+    Args:
+        user_id (int): ID пользователя.
+        db (AsyncSession): Сессия базы данных.
+
+    Returns:
+        dict: Информация о пользователе.
+
+    Raises:
+        HTTPException: Если пользователь не найден.
+    """
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
@@ -112,6 +167,19 @@ async def delete_user(
 ) -> dict[str, Any]:
     """
     Удаляет пользователя по id, а также все его аудиофайлы из БД и с диска.
+
+    Args:
+        user_id (int): ID пользователя.
+        db (AsyncSession): Сессия базы данных.
+
+    Returns:
+        dict: Результат удаления.
+
+    Raises:
+        HTTPException: Если пользователь не найден.
+
+    Pitfalls:
+        - Аудиофайлы на диске могут отсутствовать, тогда удаляется только запись.
     """
     user = await db.get(User, user_id)
     if not user:

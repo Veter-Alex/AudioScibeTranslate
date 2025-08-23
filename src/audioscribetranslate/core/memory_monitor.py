@@ -1,12 +1,19 @@
 """
 Сервис мониторинга памяти и динамического масштабирования Celery воркеров.
 
-Этот модуль предоставляет функциональность для:
-- Мониторинга использования системной памяти
-- Автоматического масштабирования количества Celery воркеров
-- Управления ресурсами на основе доступной памяти
+Модуль предоставляет:
+    - Мониторинг использования системной памяти
+    - Автоматическое масштабирование количества Celery воркеров
+    - Управление ресурсами на основе доступной памяти
 
-Особенно полезен для серверов Dell R620 с 64GB RAM и 8 CPU.
+Особенности:
+    - Оптимизирован для серверов Dell R620 с 64GB RAM и 8 CPU
+
+Example:
+    >>> from audioscribetranslate.core.memory_monitor import memory_monitor
+    >>> memory_monitor.start_monitoring()
+    >>> status = memory_monitor.get_status()
+    >>> print(status)
 """
 
 import logging
@@ -17,7 +24,7 @@ import sys
 import time
 from dataclasses import dataclass
 from threading import Event, Thread
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import psutil
 
@@ -28,8 +35,16 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class MemoryInfo:
-    """Информация о состоянии памяти системы"""
+    """
+    Инкапсулирует информацию о состоянии памяти системы.
 
+    Attributes:
+        total_gb (float): Общий объём памяти (GB).
+        available_gb (float): Доступная память (GB).
+        used_gb (float): Использованная память (GB).
+        percent_used (float): Процент использования памяти.
+        free_gb (float): Свободная память (GB).
+    """
     total_gb: float
     available_gb: float
     used_gb: float
@@ -39,8 +54,16 @@ class MemoryInfo:
 
 @dataclass
 class WorkerInfo:
-    """Информация о воркере Celery"""
+    """
+    Инкапсулирует информацию о воркере Celery.
 
+    Attributes:
+        pid (int): PID процесса воркера.
+        name (str): Имя процесса.
+        memory_mb (float): Использование памяти (MB).
+        cpu_percent (float): Использование CPU (%).
+        status (str): Статус воркера.
+    """
     pid: int
     name: str
     memory_mb: float
@@ -50,17 +73,29 @@ class WorkerInfo:
 
 class MemoryMonitor:
     """
-    Мониторинг памяти и управление Celery воркерами
+    Класс для мониторинга памяти и управления Celery воркерами.
 
-    Этот класс отслеживает использование памяти и автоматически
-    масштабирует количество Celery воркеров на основе доступных ресурсов.
+    Автоматически масштабирует количество воркеров на основе доступных ресурсов.
+
+    Attributes:
+        settings: Конфигурация приложения.
+        memory_threshold_gb: Порог памяти для масштабирования.
+        max_workers: Максимальное количество воркеров.
+        min_workers: Минимальное количество воркеров.
+        memory_check_interval: Интервал проверки памяти (сек).
+        worker_memory_limit_gb: Лимит памяти на воркер.
+        auto_scaling_enabled: Включено ли автомасштабирование.
+
+    Example:
+        monitor = MemoryMonitor()
+        monitor.start_monitoring()
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.settings = get_settings()
         self._stop_event = Event()
-        self._monitoring_thread: Optional[Thread] = None
-        self._active_workers: List[subprocess.Popen] = []
+        self._monitoring_thread = None  # type: Optional[Thread]
+        self._active_workers = []  # type: List[subprocess.Popen[Any]]
 
         # Настройки из конфига
         self.memory_threshold_gb = self.settings.memory_threshold_gb
@@ -79,7 +114,16 @@ class MemoryMonitor:
         )
 
     def get_memory_info(self) -> MemoryInfo:
-        """Получить информацию о памяти системы"""
+        """
+        Получить информацию о памяти системы.
+
+        Returns:
+            MemoryInfo: Структура с данными о памяти.
+
+        Example:
+            >>> info = monitor.get_memory_info()
+            >>> print(info.available_gb)
+        """
         memory = psutil.virtual_memory()
 
         return MemoryInfo(
@@ -91,7 +135,16 @@ class MemoryMonitor:
         )
 
     def get_celery_workers(self) -> List[WorkerInfo]:
-        """Получить список активных Celery воркеров"""
+        """
+        Получить список активных Celery воркеров.
+
+        Returns:
+            List[WorkerInfo]: Список структур с информацией о воркерах.
+
+        Example:
+            >>> workers = monitor.get_celery_workers()
+            >>> for w in workers: print(w.pid, w.memory_mb)
+        """
         workers = []
 
         for process in psutil.process_iter(["pid", "name", "cmdline"]):
@@ -127,13 +180,16 @@ class MemoryMonitor:
 
     def calculate_optimal_workers(self, memory_info: MemoryInfo) -> int:
         """
-        Рассчитать оптимальное количество воркеров на основе доступной памяти
+        Рассчитать оптимальное количество воркеров на основе доступной памяти.
 
         Args:
-            memory_info: Информация о памяти системы
+            memory_info (MemoryInfo): Информация о памяти системы.
 
         Returns:
-            Оптимальное количество воркеров
+            int: Оптимальное количество воркеров.
+
+        Example:
+            >>> optimal = monitor.calculate_optimal_workers(info)
         """
         if not self.auto_scaling_enabled:
             return self.min_workers
@@ -161,15 +217,18 @@ class MemoryMonitor:
 
         return optimal_workers
 
-    def start_worker(self, worker_id: int) -> Optional[subprocess.Popen]:
+    def start_worker(self, worker_id: int) -> Optional[subprocess.Popen[Any]]:
         """
-        Запустить нового Celery воркера
+        Запустить нового Celery воркера.
 
         Args:
-            worker_id: ID воркера
+            worker_id (int): ID воркера.
 
         Returns:
-            Процесс воркера или None в случае ошибки
+            Optional[subprocess.Popen]: Процесс воркера или None в случае ошибки.
+
+        Example:
+            >>> proc = monitor.start_worker(1)
         """
         try:
             worker_name = f"worker_{worker_id}@%h"
@@ -202,15 +261,18 @@ class MemoryMonitor:
             logger.error(f"Ошибка при запуске воркера {worker_id}: {e}")
             return None
 
-    def stop_worker(self, process: subprocess.Popen) -> bool:
+    def stop_worker(self, process: subprocess.Popen[Any]) -> bool:
         """
-        Остановить воркера
+        Остановить воркера.
 
         Args:
-            process: Процесс воркера
+            process (subprocess.Popen): Процесс воркера.
 
         Returns:
-            True если воркер успешно остановлен
+            bool: True если воркер успешно остановлен, иначе False.
+
+        Example:
+            >>> monitor.stop_worker(proc)
         """
         try:
             logger.info(f"Останавливаем воркера с PID {process.pid}")
@@ -241,10 +303,16 @@ class MemoryMonitor:
 
     def scale_workers(self, target_workers: int) -> None:
         """
-        Масштабировать количество воркеров до целевого значения
+        Масштабировать количество воркеров до целевого значения.
 
         Args:
-            target_workers: Целевое количество воркеров
+            target_workers (int): Целевое количество воркеров.
+
+        Returns:
+            None
+
+        Example:
+            >>> monitor.scale_workers(4)
         """
         current_workers = len(self._active_workers)
 
@@ -269,7 +337,15 @@ class MemoryMonitor:
                     time.sleep(1)
 
     def cleanup_dead_workers(self) -> None:
-        """Удалить из списка завершившиеся воркеры"""
+        """
+        Удалить из списка завершившиеся воркеры.
+
+        Returns:
+            None
+
+        Example:
+            >>> monitor.cleanup_dead_workers()
+        """
         alive_workers = []
 
         for worker in self._active_workers:
@@ -281,7 +357,15 @@ class MemoryMonitor:
         self._active_workers = alive_workers
 
     def monitoring_loop(self) -> None:
-        """Основной цикл мониторинга"""
+        """
+        Основной цикл мониторинга.
+
+        Returns:
+            None
+
+        Example:
+            >>> monitor.monitoring_loop()
+        """
         logger.info("Запуск цикла мониторинга памяти")
 
         while not self._stop_event.is_set():
@@ -323,7 +407,15 @@ class MemoryMonitor:
                 self._stop_event.wait(5)  # Короткая пауза перед повтором
 
     def start_monitoring(self) -> None:
-        """Запустить мониторинг в отдельном потоке"""
+        """
+        Запустить мониторинг в отдельном потоке.
+
+        Returns:
+            None
+
+        Example:
+            >>> monitor.start_monitoring()
+        """
         if self._monitoring_thread and self._monitoring_thread.is_alive():
             logger.warning("Мониторинг уже запущен")
             return
@@ -339,7 +431,15 @@ class MemoryMonitor:
         self._monitoring_thread.start()
 
     def stop_monitoring(self) -> None:
-        """Остановить мониторинг"""
+        """
+        Остановить мониторинг.
+
+        Returns:
+            None
+
+        Example:
+            >>> monitor.stop_monitoring()
+        """
         logger.info("Остановка мониторинга памяти")
 
         # Сигнал остановки
@@ -355,8 +455,17 @@ class MemoryMonitor:
 
         logger.info("Мониторинг памяти остановлен")
 
-    def get_status(self) -> Dict:
-        """Получить текущий статус системы"""
+    def get_status(self) -> Dict[str, Any]:
+        """
+        Получить текущий статус системы.
+
+        Returns:
+            Dict: Структура с данными о памяти, воркерах и конфиге.
+
+        Example:
+            >>> status = monitor.get_status()
+            >>> print(status['memory'])
+        """
         memory_info = self.get_memory_info()
         workers = self.get_celery_workers()
 
@@ -398,8 +507,20 @@ class MemoryMonitor:
 memory_monitor = MemoryMonitor()
 
 
-def signal_handler(signum, frame):
-    """Обработчик сигналов для graceful shutdown"""
+def signal_handler(signum: int, frame: Any) -> None:
+    """
+    Обработчик сигналов для graceful shutdown.
+
+    Args:
+        signum (int): Номер сигнала.
+        frame: Текущий стек.
+
+    Returns:
+        None
+
+    Example:
+        signal_handler(signal.SIGINT, None)
+    """
     try:
         logger.info(f"Получен сигнал {signum}, завершаем работу...")
         memory_monitor.stop_monitoring()

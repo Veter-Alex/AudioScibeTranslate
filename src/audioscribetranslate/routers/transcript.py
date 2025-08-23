@@ -20,6 +20,28 @@ async def list_transcripts(
     limit: int = 20,
     offset: int = 0,
 ) -> dict[str, Any]:
+    """
+    Получить список транскриптов с фильтрами и пагинацией.
+
+    Args:
+        db (AsyncSession): Сессия базы данных.
+        audio_file_id (Optional[int]): Фильтр по аудиофайлу.
+        status (Optional[str]): Фильтр по статусу.
+        order_by (str): Поле сортировки.
+        order_dir (str): Направление сортировки.
+        limit (int): Лимит.
+        offset (int): Смещение.
+
+    Returns:
+        dict: {items, total, limit, offset}
+
+    Example:
+        GET /transcripts?audio_file_id=1&limit=10
+
+    Pitfalls:
+        - Лимит не может превышать 100.
+        - Сортировка только по разрешённым полям.
+    """
     limit = min(max(limit, 1), 100)
     offset = max(offset, 0)
 
@@ -66,6 +88,19 @@ async def list_transcripts(
 async def get_transcript(
     transcript_id: int, db: AsyncSession = Depends(get_db)
 ) -> dict[str, Any]:
+    """
+    Получить информацию о транскрипте по ID.
+
+    Args:
+        transcript_id (int): ID транскрипта.
+        db (AsyncSession): Сессия базы данных.
+
+    Returns:
+        dict: Информация о транскрипте.
+
+    Raises:
+        HTTPException: Если транскрипт не найден.
+    """
     res = await db.execute(select(Transcript).where(Transcript.id == transcript_id))
     obj = res.scalar_one_or_none()
     if not obj:
