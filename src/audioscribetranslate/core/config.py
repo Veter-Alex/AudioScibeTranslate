@@ -28,7 +28,16 @@ class Settings(BaseSettings):
     secret_key: str = "your-secret-key"
     celery_broker_url: str = "redis://localhost:6379/1"
     celery_result_backend: str = "redis://localhost:6379/2"
-    whisper_models: str = ""
+    # Whisper модели
+    whisper_models: str = "base,small,medium,large"
+
+    # Настройки динамического масштабирования воркеров
+    memory_threshold_gb: int = 8
+    max_workers: int = 6
+    min_workers: int = 1
+    memory_check_interval: int = 30
+    worker_memory_limit_gb: int = 4
+    enable_auto_scaling: bool = True
 
     @property
     def whisper_models_list(self) -> list[str]:

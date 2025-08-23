@@ -84,6 +84,84 @@ def stop_docker() -> bool:
     return True
 
 
+def run_worker_manager() -> None:
+    """Запуск менеджера воркеров с автомасштабированием"""
+    print("🚀 Запуск менеджера воркеров с автомасштабированием...")
+
+    # Проверяем настройки
+    current_env = os.getenv("ENV", "local")
+    print(f"   Окружение: {current_env}")
+
+    try:
+        # Устанавливаем зависимости если нужно
+        subprocess.run(["poetry", "install"], check=True, capture_output=True)
+
+        # Запускаем менеджер воркеров
+        subprocess.run(
+            ["poetry", "run", "python", "src/audioscribetranslate/worker_manager.py"],
+            check=True,
+        )
+
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Ошибка запуска менеджера воркеров: {e}")
+    except KeyboardInterrupt:
+        print("\n⏹️ Остановка менеджера воркеров...")
+
+
+def show_worker_status() -> None:
+    """Показать статус воркеров"""
+    print("📊 Статус воркеров:")
+
+    try:
+        # Запускаем команду статуса
+        result = subprocess.run(
+            [
+                "poetry",
+                "run",
+                "python",
+                "src/audioscribetranslate/worker_manager.py",
+                "--status",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+        print(result.stdout)
+
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Ошибка получения статуса: {e}")
+        if e.stderr:
+            print(f"   Детали: {e.stderr}")
+
+
+def stop_workers() -> None:
+    """Остановить воркеры"""
+    print("⏹️ Остановка воркеров...")
+
+    try:
+        result = subprocess.run(
+            [
+                "poetry",
+                "run",
+                "python",
+                "src/audioscribetranslate/worker_manager.py",
+                "--stop",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+        print(result.stdout)
+        print("✅ Воркеры остановлены")
+
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Ошибка остановки воркеров: {e}")
+        if e.stderr:
+            print(f"   Детали: {e.stderr}")
+
+
 def show_status() -> None:
     """Показать статус сервисов"""
     print("📋 Статус окружения:")
@@ -130,10 +208,19 @@ def main() -> None:
         print("  python manage.py docker    - Запуск всех сервисов через Docker")
         print("  python manage.py stop      - Остановка Docker сервисов")
         print("  python manage.py status    - Показать статус")
+        print("\nУправление воркерами:")
+        print(
+            "  python manage.py workers   - Запуск менеджера воркеров с автомасштабированием"
+        )
+        print("  python manage.py worker-status - Показать статус воркеров")
+        print("  python manage.py stop-workers  - Остановить воркеры")
         print("\nОкружения:")
         print("  local      - Разработка без Docker (.env.local)")
         print("  docker     - Разработка с Docker (.env)")
         print("  production - Продакшн (.env.production)")
+        print("\nПримеры:")
+        print("  ENV=production python manage.py workers  - Запуск в продакшне")
+        print("  ENV=docker python manage.py services     - Запуск Docker сервисов")
         return
 
     command = sys.argv[1].lower()
@@ -148,9 +235,17 @@ def main() -> None:
         stop_docker()
     elif command == "status":
         show_status()
+    elif command == "workers":
+        run_worker_manager()
+    elif command == "worker-status":
+        show_worker_status()
+    elif command == "stop-workers":
+        stop_workers()
     else:
         print(f"❌ Неизвестная команда: {command}")
-        print("Используйте: local, services, docker, stop, status")
+        print(
+            "Используйте: local, services, docker, stop, status, workers, worker-status, stop-workers"
+        )
 
 
 if __name__ == "__main__":

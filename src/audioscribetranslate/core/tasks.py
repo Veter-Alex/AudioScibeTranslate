@@ -27,14 +27,57 @@ celery_app = Celery(
     backend=settings.celery_result_backend,
 )
 
-# Минимизируем блокировки при недоступном брокере
+# Настройки Celery для оптимальной работы с памятью и масштабирования
 celery_app.conf.update(
+    # Основные настройки совместимости
     task_ignore_result=True,
     broker_connection_max_retries=1,  # не пытаться долго переподключаться
     broker_connection_timeout=2,  # короткий таймаут подключения
     broker_connection_retry_on_startup=False,  # не зависать при старте
     result_backend_transport_options={"retry_policy": {"timeout": 2}},
+    # Настройки для управления памятью и производительности
+    worker_prefetch_multiplier=1,  # Один таск на раз для контроля памяти
+    task_acks_late=True,  # Подтверждаем выполнение только после завершения
+    worker_max_tasks_per_child=15,  # Перезапуск воркера после 15 задач (для очистки памяти)
+    # Таймауты для длительных задач (обработка аудио)
+    task_time_limit=3600,  # 1 час на задачу максимум
+    task_soft_time_limit=3300,  # 55 минут мягкий лимит
+    task_default_retry_delay=60,  # 1 минута между повторами
+    task_max_retries=3,  # Максимум 3 повтора
+    # Настройки сериализации
+    task_serializer="json",
+    accept_content=["json"],
+    result_serializer="json",
+    # Очереди для разных типов задач (для приоритизации)
+    task_routes={
+        "audioscribetranslate.core.tasks.transcribe_audio": {"queue": "transcription"},
+        "audioscribetranslate.core.tasks.translate_transcript": {
+            "queue": "translation"
+        },
+        "audioscribetranslate.core.tasks.summarize_translation": {
+            "queue": "summarization"
+        },
+    },
 )
+
+import psutil
+
+# Сигналы для интеграции с мониторингом памяти
+from celery.signals import worker_ready, worker_shutdown
+
+
+@worker_ready.connect
+def worker_ready_handler(sender=None, **kwargs):
+    """Сигнал готовности воркера"""
+    logger.info(f"Celery воркер готов: {sender}")
+    logger.info(f"Использование памяти: {psutil.virtual_memory().percent:.1f}%")
+
+
+@worker_shutdown.connect
+def worker_shutdown_handler(sender=None, **kwargs):
+    """Сигнал завершения воркера"""
+    logger.info(f"Celery воркер завершается: {sender}")
+
 
 try:
     # Пробуем лёгкий ping (не критично если упадёт) — чтобы быстрее выявить проблему в логах

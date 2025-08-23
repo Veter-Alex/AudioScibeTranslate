@@ -13,6 +13,7 @@ from audioscribetranslate.models.user import User
 from audioscribetranslate.routers import (
     audio_file,
     example,
+    monitoring,
     summary,
     transcript,
     translation,
@@ -53,3 +54,4 @@ app.include_router(audio_file.router)
 app.include_router(transcript.router)
 app.include_router(translation.router)
 app.include_router(summary.router)
+app.include_router(monitoring.router)

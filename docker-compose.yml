@@ -37,15 +37,17 @@ services:
 
   celery:
     build: .
-    command: celery -A src.audioscribetranslate.worker worker --loglevel=info
+    command: python src/audioscribetranslate/worker_manager.py
     volumes:
       - ./src:/app/src
       - ./.env:/app/.env
+      - /var/run/docker.sock:/var/run/docker.sock # Для управления Docker контейнерами
     env_file:
       - .env
     depends_on:
       - db
       - redis
+    privileged: true # Необходимо для мониторинга системных ресурсов
 
   pgadmin:
     image: dpage/pgadmin4
