@@ -188,7 +188,7 @@ async def delete_user(
     result = await db.execute(select(AudioFile).where(AudioFile.user_id == user_id))
     files = result.scalars().all()
     for audio in files:
-        file_path = os.path.join(get_uploaded_files_dir(), audio.filename)
+        file_path = os.path.join(get_uploaded_files_dir(), audio.storage_path)
         if os.path.exists(file_path):
             os.remove(file_path)
         await db.delete(audio)

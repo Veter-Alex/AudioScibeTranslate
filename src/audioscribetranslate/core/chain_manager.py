@@ -8,6 +8,7 @@
 """
 
 import logging
+import os
 import subprocess
 import threading
 import time
@@ -135,7 +136,6 @@ class ProcessingChainManager:
                 "--queues=processing_chains",
                 f"--hostname={worker_id}@%h",
                 "--concurrency=1",
-                f"--max-memory-per-child={self.settings.worker_memory_limit_gb * 1024 * 1024}"
             ]
             
             logger.info(f"Запуск воркера цепочек: {worker_id}")
@@ -271,3 +271,25 @@ def stop_chain_manager() -> None:
         _chain_manager.stop()
         _chain_manager = None
         _chain_manager = None
+
+# Диагностический вывод
+settings = get_settings()
+
+print(f"[DIAG] MIN_FREE_MEMORY_GB from config: {getattr(settings, 'min_free_memory_gb', None)}")
+free_mem_gb = psutil.virtual_memory().available / (1024**3)
+
+# Перед запуском очереди:
+from audioscribetranslate.models.audio_file import AudioFile
+
+manager = ProcessingChainManager()
+with manager.SessionLocal() as session:
+    uploaded_files = session.execute(
+        select(AudioFile).where(AudioFile.status == 'uploaded')
+    ).scalars().all()
+    print(f"[DIAG] Файлов со статусом 'uploaded': {len(uploaded_files)}")
+    if not uploaded_files:
+        print("[DIAG] Нет файлов для обработки!")
+    elif free_mem_gb < getattr(settings, 'min_free_memory_gb', 1):
+        print(f"[DIAG] Недостаточно памяти для запуска цепочки! Требуется: {getattr(settings, 'min_free_memory_gb', 1)} GB, доступно: {free_mem_gb:.2f} GB")
+    else:
+        print("[DIAG] Условия для запуска цепочки выполнены, задачи будут поставлены в очередь.")

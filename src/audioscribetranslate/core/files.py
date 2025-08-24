@@ -44,7 +44,7 @@ def create_uploaded_files_structure(
 
     """
     if base_dir is None:
-        base_dir = get_uploaded_files_dir()
+        base_dir = get_uploaded_files_dir()  # Получаем путь к директории uploaded_files
     os.makedirs(base_dir, exist_ok=True)
     for model in models:
         model_dir = os.path.join(base_dir, model)

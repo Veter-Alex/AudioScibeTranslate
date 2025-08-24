@@ -434,7 +434,7 @@ def summarize_translation(summary_id: int) -> None:
         None
 
     Example:
-        >>> summarize_translation.delay(789)
+                        os.path.join(get_uploaded_files_dir(), audio.storage_path) or "", model_name_value
 
     Pitfalls:
         Ошибки суммаризации не пробрасываются, а логируются и помечают статус 'failed'.

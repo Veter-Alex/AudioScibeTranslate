@@ -90,7 +90,6 @@ class Settings(BaseSettings):
         celery_result_backend (str): URL backend'а Celery.
         whisper_models (str): Список моделей Whisper через запятую.
         max_workers (int): Максимальное количество воркеров цепочек.
-        worker_memory_limit_gb (int): Лимит памяти на воркер.
         min_free_memory_gb (int): Минимум свободной памяти для запуска воркера.
         enable_processing_chains (bool): Включить обработку цепочками.
         chain_queue_check_interval (int): Интервал проверки очереди цепочек (сек).
@@ -113,7 +112,6 @@ class Settings(BaseSettings):
 
     # Настройки воркеров (для цепочек обработки)
     max_workers: int = 6
-    worker_memory_limit_gb: int = 4
     
     # Настройки цепочек обработки
     min_free_memory_gb: int = 4  # Минимум свободной памяти для запуска нового воркера

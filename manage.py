@@ -265,6 +265,16 @@ def show_status() -> None:
         print("   Docker недоступен или сервисы не запущены")
 
 
+def get_venv_python() -> str:
+    """Возвращает путь к python из виртуального окружения .venv, если он существует."""
+    venv_dir = Path(__file__).parent / ".venv"
+    if os.name == "nt":
+        python_path = venv_dir / "Scripts" / "python.exe"
+    else:
+        python_path = venv_dir / "bin" / "python"
+    return str(python_path) if python_path.exists() else sys.executable
+
+
 def main() -> None:
     if len(sys.argv) < 2:
         print("🔧 Менеджер окружений AudioScribeTranslate")

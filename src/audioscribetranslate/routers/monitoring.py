@@ -19,10 +19,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/monitoring", tags=["monitoring"])
 
 # Глобальная переменная для chain_manager будет инициализирована при старте приложения
-chain_manager: ProcessingChainManager = None
+from typing import Optional
+
+chain_manager: Optional[ProcessingChainManager] = None
 
 
-def set_chain_manager(manager: ProcessingChainManager):
+def set_chain_manager(manager: ProcessingChainManager) -> None:
     """Устанавливает менеджер цепочек для использования в роутах."""
     global chain_manager
     chain_manager = manager
@@ -68,35 +70,32 @@ async def get_worker_info() -> Dict[str, Any]:
         raise HTTPException(status_code=503, detail="Chain manager не инициализирован")
     
     try:
-        workers_info = {
+        workers_info: Dict[str, Any] = {
             "active_workers": 0,
             "worker_processes": [],
             "queue_info": {
                 "processing_chains": "unknown"
             }
         }
-        
+
         # Получаем информацию о активных воркерах из chain_manager
         if hasattr(chain_manager, 'workers'):
             workers_info["active_workers"] = len(chain_manager.workers)
-            
             # Детальная информация о каждом воркере
             for worker_id, worker in chain_manager.workers.items():
                 worker_info = {
                     "id": worker_id,
-                    "status": "running" if hasattr(worker, 'process') and worker.process.is_alive() else "stopped",
-                    "pid": worker.process.pid if hasattr(worker, 'process') and worker.process.is_alive() else None
+                    "status": "running" if hasattr(worker, 'process') and worker.process and worker.process.poll() is None else "stopped",
+                    "pid": worker.process.pid if hasattr(worker, 'process') and worker.process and worker.process.poll() is None else None
                 }
-                
                 # Добавляем информацию об использовании ресурсов если доступно
                 if PSUTIL_AVAILABLE and worker_info["pid"]:
                     try:
                         proc = psutil.Process(worker_info["pid"])
                         worker_info["memory_mb"] = round(proc.memory_info().rss / (1024**2), 2)
-                        worker_info["cpu_percent"] = round(proc.cpu_percent(), 2)
+                        worker_info["cpu_percent"] = round(proc.cpu_percent(interval=None), 2)
                     except (psutil.NoSuchProcess, psutil.AccessDenied):
                         pass
-                
                 workers_info["worker_processes"].append(worker_info)
         
         return workers_info
@@ -138,11 +137,12 @@ async def get_memory_info() -> Dict[str, Any]:
         }
         
         # CPU информация
+        import os
         cpu_info = {
-            "cpu_percent": psutil.cpu_percent(interval=1),
+            "cpu_percent": psutil.cpu_percent(interval=None),
             "cpu_count_logical": psutil.cpu_count(),
             "cpu_count_physical": psutil.cpu_count(logical=False),
-            "load_average": psutil.getloadavg() if hasattr(psutil, 'getloadavg') else None
+            "load_average": psutil.getloadavg() if hasattr(psutil, 'getloadavg') and os.name != 'nt' else None
         }
         
         memory_info["cpu"] = cpu_info

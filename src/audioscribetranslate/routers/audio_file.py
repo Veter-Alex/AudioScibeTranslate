@@ -81,13 +81,13 @@ async def upload_audio_file(
     if not user_obj:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # Путь: uploaded_files/<model>/<user_name>/
+        # Путь: <base_dir>/<model>/<user_name>/
     base_dir = get_uploaded_files_dir()
     target_dir = os.path.join(base_dir, whisper_model.value, user_obj.name)
     os.makedirs(target_dir, exist_ok=True)
     unique_filename = f"{uuid.uuid4().hex}_{file.filename}"
     relative_storage_path = f"{whisper_model.value}/{user_obj.name}/{unique_filename}"
-    file_path = os.path.join(base_dir, relative_storage_path)
+    file_path = os.path.join(get_uploaded_files_dir(), relative_storage_path)
     with open(file_path, "wb") as f:
         f.write(await file.read())
 
